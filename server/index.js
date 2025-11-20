@@ -10,12 +10,14 @@ const app = express();
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
-app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
-  credentials: true
-}));
+// app.use(cors({
+//   origin: process.env.CLIENT_URL || 'http://localhost:5173',
+//   credentials: true
+// }));
 
 // Passport config
+app.use(cors());
+
 require('./config/passport')(passport);
 
 // Database connection
@@ -24,7 +26,8 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/mern-oaut
   .catch(err => console.log(err));
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
+app.use('/api', require('./routes/index'));
+// app.use('/api/product', require('./routes/productRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: 'MERN OAuth API' });

@@ -1,35 +1,24 @@
 // services/cacheService.js
-const redis = require('redis');
-
 class CacheService {
   constructor() {
-    this.client = redis.createClient({
-      url: process.env.REDIS_URL
-    });
-    
-    this.client.on('error', (err) => console.log('Redis Client Error', err));
-    this.client.connect();
+    console.log('Caching disabled');
   }
 
   async get(key) {
-    return await this.client.get(key);
+    return null;
   }
 
   async set(key, value, expiration = 3600) {
-    await this.client.set(key, value, {
-      EX: expiration
-    });
+    // Do nothing
+    return true;
   }
 
   async delete(key) {
-    await this.client.del(key);
+    return true;
   }
 
   async deletePattern(pattern) {
-    const keys = await this.client.keys(pattern);
-    if (keys.length > 0) {
-      await this.client.del(keys);
-    }
+    return true;
   }
 }
 
