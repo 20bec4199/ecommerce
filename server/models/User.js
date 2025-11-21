@@ -19,11 +19,15 @@ const UserSchema = new mongoose.Schema({
     type: String
   },
   avatar: {
-    type: String
+    data: Buffer,
+    contentType: String
   },
   profile: {
     phone: String,
-    avatar: String,
+    avatar: {
+      data: Buffer,
+      contentType: String
+    },
     dateOfBirth: Date
   },
   address: [{
