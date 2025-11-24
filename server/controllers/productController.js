@@ -1,293 +1,338 @@
-// controllers/productController.js
 const Product = require('../models/Product');
 const Category = require('../models/Category');
+const Review = require('../models/Review');
+const catchAsyncError = require('../middleware/catchAsyncError');
+const ErrorHandler = require('../middleware/errorHandler');
 
-// Get all products with advanced filtering
-const getProducts = async (req, res, next) => {
-  try {
-    const {
-      page = 1,
-      limit = 12,
-      category,
-      seller,
-      minPrice,
-      maxPrice,
-      sortBy = 'createdAt',
-      sortOrder = 'desc',
-      search,
-      status = 'active'
-    } = req.query;
+// Get all products with filtering and pagination
+exports.getProducts = catchAsyncError(async (req, res, next) => {
+  const {
+    page = 1,
+    limit = 12,
+    category,
+    search,
+    minPrice,
+    maxPrice,
+    rating,
+    sortBy = 'createdAt',
+    sortOrder = 'desc',
+    status = 'active',
+    tags,
+    seller
+  } = req.query;
 
-    const filter = { status };
-    if (category) filter.category = category;
-    if (seller) filter.seller = seller;
-    if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = Number(minPrice);
-      if (maxPrice) filter.price.$lte = Number(maxPrice);
-    }
-    if (search) {
-      filter.$text = { $search: search };
-    }
+  const filter = { status };
 
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-    
-    const products = await Product.find(filter)
-      .populate('seller', 'name sellerProfile.storeName')
-      .populate('category', 'name')
-      .sort(sort)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .lean();
-
-    const total = await Product.countDocuments(filter);
-
-    const result = {
-      products,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total,
-        pages: Math.ceil(total / limit)
+  // Category filter
+  if (category) {
+    if (mongoose.Types.ObjectId.isValid(category)) {
+      filter.category = category;
+    } else {
+      const categoryDoc = await Category.findOne({ slug: category });
+      if (categoryDoc) {
+        filter.category = categoryDoc._id;
       }
-    };
-    
-    res.json(result);
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Get single product with related products
-const getProduct = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    const product = await Product.findById(id)
-      .populate('seller', 'name sellerProfile rating')
-      .populate('category', 'name')
-      .lean();
-
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
     }
-
-    // Get related products
-    const relatedProducts = await Product.find({
-      category: product.category,
-      _id: { $ne: product._id },
-      status: 'active'
-    })
-    .limit(4)
-    .select('name price images rating')
-    .lean();
-
-    res.json({
-      product,
-      relatedProducts
-    });
-  } catch (error) {
-    next(error);
   }
-};
 
-// Create product (Seller only)
-const createProduct = async (req, res, next) => {
-  console.log(req.user);
-  try {
-    const productData = {
-      ...req.body,
-      seller: req.user.userId
-    };
-
-    const product = new Product(productData);
-    await product.save();
-
-    res.status(201).json({
-      message: 'Product created successfully',
-      product
-    });
-  } catch (error) {
-    next(error);
+  // Search filter
+  if (search) {
+    filter.$text = { $search: search };
   }
-};
 
-// Update product (Seller only)
-const updateProduct = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    const product = await Product.findOne({
-      _id: id,
-      seller: req.user.userId
-    });
-
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    Object.assign(product, req.body);
-    await product.save();
-
-    res.json({
-      message: 'Product updated successfully',
-      product
-    });
-  } catch (error) {
-    next(error);
+  // Price range filter
+  if (minPrice || maxPrice) {
+    filter.price = {};
+    if (minPrice) filter.price.$gte = parseFloat(minPrice);
+    if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
   }
-};
 
-// Delete product (Seller only)
-const deleteProduct = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    
-    const product = await Product.findOne({
-      _id: id,
-      seller: req.user.userId
-    });
-
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    await Product.findByIdAndDelete(id);
-
-    res.json({
-      message: 'Product deleted successfully'
-    });
-  } catch (error) {
-    next(error);
+  // Rating filter
+  if (rating) {
+    filter['rating.average'] = { $gte: parseFloat(rating) };
   }
-};
 
-// Get featured products
-const getFeaturedProducts = async (req, res, next) => {
-  try {
-    const { limit = 8 } = req.query;
+  // Tags filter
+  if (tags) {
+    filter.tags = { $in: tags.split(',') };
+  }
 
-    const products = await Product.find({
-      isFeatured: true,
-      status: 'active'
-    })
+  // Seller filter
+  if (seller) {
+    filter.seller = seller;
+  }
+
+  const skip = (page - 1) * limit;
+  const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
+
+  const products = await Product.find(filter)
+    .populate('category', 'name slug')
     .populate('seller', 'name sellerProfile.storeName')
-    .populate('category', 'name')
-    .sort({ createdAt: -1 })
-    .limit(Number(limit))
-    .select('name price images rating category seller')
-    .lean();
+    .skip(skip)
+    .limit(parseInt(limit))
+    .sort(sort);
 
-    res.json(products);
-  } catch (error) {
-    next(error);
-  }
-};
+  const totalProducts = await Product.countDocuments(filter);
+  const totalPages = Math.ceil(totalProducts / limit);
 
-// Get products by category
-const getProductsByCategory = async (req, res, next) => {
-  try {
-    const { categorySlug } = req.params;
-    const {
-      page = 1,
-      limit = 12,
-      minPrice,
-      maxPrice,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
-
-    // Find category by slug
-    const category = await Category.findOne({ slug: categorySlug });
-    if (!category) {
-      return res.status(404).json({ message: 'Category not found' });
+  res.status(200).json({
+    success: true,
+    products,
+    pagination: {
+      currentPage: parseInt(page),
+      totalPages,
+      totalProducts,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
     }
+  });
+});
 
-    const filter = {
-      category: category._id,
-      status: 'active'
-    };
+// Get single product
+exports.getProduct = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
 
-    if (minPrice || maxPrice) {
-      filter.price = {};
-      if (minPrice) filter.price.$gte = Number(minPrice);
-      if (maxPrice) filter.price.$lte = Number(maxPrice);
-    }
-
-    const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
-    
-    const products = await Product.find(filter)
-      .populate('seller', 'name sellerProfile.storeName')
-      .populate('category', 'name')
-      .sort(sort)
-      .limit(limit * 1)
-      .skip((page - 1) * limit)
-      .lean();
-
-    const total = await Product.countDocuments(filter);
-
-    const result = {
-      products,
-      category: category.name,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    };
-    
-    res.json(result);
-  } catch (error) {
-    next(error);
+  let product;
+  if (mongoose.Types.ObjectId.isValid(id)) {
+    product = await Product.findById(id)
+      .populate('category', 'name slug')
+      .populate('seller', 'name sellerProfile.storeName');
+  } else {
+    product = await Product.findOne({ 'seo.slug': id })
+      .populate('category', 'name slug')
+      .populate('seller', 'name sellerProfile.storeName');
   }
-};
+
+  if (!product) {
+    return next(new ErrorHandler('Product not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    product
+  });
+});
+
+// Create product (seller only)
+exports.createProduct = catchAsyncError(async (req, res, next) => {
+  const {
+    name,
+    description,
+    category,
+    price,
+    comparePrice,
+    cost,
+    inventory,
+    attributes,
+    variants,
+    tags,
+    isFeatured
+  } = req.body;
+
+  // Verify seller has approved seller profile
+  const User = require('../models/User');
+  const user = await User.findById(req.user.userId);
+  if (!user.sellerProfile.isApproved) {
+    return next(new ErrorHandler('Seller profile not approved', 403));
+  }
+
+  const product = new Product({
+    name,
+    description,
+    seller: req.user.userId,
+    category,
+    price,
+    comparePrice,
+    cost,
+    inventory: {
+      sku: inventory?.sku || `SKU${Date.now()}`,
+      quantity: inventory?.quantity || 0,
+      trackQuantity: inventory?.trackQuantity !== false,
+      allowBackorder: inventory?.allowBackorder || false
+    },
+    attributes: attributes || [],
+    variants: variants || [],
+    tags: tags || [],
+    isFeatured: isFeatured || false,
+    seo: {
+      slug: name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-')
+    }
+  });
+
+  await product.save();
+  await product.populate('category', 'name slug');
+
+  res.status(201).json({
+    success: true,
+    message: 'Product created successfully',
+    product
+  });
+});
+
+// Update product (seller only)
+exports.updateProduct = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+  const updateData = req.body;
+
+  const product = await Product.findById(id);
+  if (!product) {
+    return next(new ErrorHandler('Product not found', 404));
+  }
+
+  // Check if user owns the product or is admin
+  if (product.seller.toString() !== req.user.userId && req.user.role !== 'admin') {
+    return next(new ErrorHandler('Not authorized to update this product', 403));
+  }
+
+  // Remove fields that shouldn't be updated directly
+  delete updateData.seller;
+  delete updateData.rating;
+  delete updateData.createdAt;
+
+  const updatedProduct = await Product.findByIdAndUpdate(
+    id,
+    { $set: updateData },
+    { 
+      new: true,
+      runValidators: true
+    }
+  ).populate('category', 'name slug')
+   .populate('seller', 'name sellerProfile.storeName');
+
+  res.status(200).json({
+    success: true,
+    message: 'Product updated successfully',
+    product: updatedProduct
+  });
+});
+
+// Delete product (seller or admin)
+exports.deleteProduct = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+
+  const product = await Product.findById(id);
+  if (!product) {
+    return next(new ErrorHandler('Product not found', 404));
+  }
+
+  // Check if user owns the product or is admin
+  if (product.seller.toString() !== req.user.userId && req.user.role !== 'admin') {
+    return next(new ErrorHandler('Not authorized to delete this product', 403));
+  }
+
+  await Product.findByIdAndDelete(id);
+
+  res.status(200).json({
+    success: true,
+    message: 'Product deleted successfully'
+  });
+});
+
+// Get products by seller
+exports.getSellerProducts = catchAsyncError(async (req, res, next) => {
+  const { page = 1, limit = 10, status } = req.query;
+  const skip = (page - 1) * limit;
+
+  const filter = { seller: req.user.userId };
+  if (status) filter.status = status;
+
+  const products = await Product.find(filter)
+    .populate('category', 'name slug')
+    .skip(skip)
+    .limit(parseInt(limit))
+    .sort({ createdAt: -1 });
+
+  const totalProducts = await Product.countDocuments(filter);
+  const totalPages = Math.ceil(totalProducts / limit);
+
+  res.status(200).json({
+    success: true,
+    products,
+    pagination: {
+      currentPage: parseInt(page),
+      totalPages,
+      totalProducts,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  });
+});
 
 // Update product inventory
-const updateInventory = async (req, res, next) => {
-  try {
-    const { id } = req.params;
-    const { quantity, trackQuantity, allowBackorder } = req.body;
-    
-    const product = await Product.findOne({
-      _id: id,
-      seller: req.user.id
-    });
+exports.updateInventory = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+  const { quantity, trackQuantity, allowBackorder } = req.body;
 
-    if (!product) {
-      return res.status(404).json({ message: 'Product not found' });
-    }
-
-    // Update inventory fields
-    if (quantity !== undefined) product.inventory.quantity = quantity;
-    if (trackQuantity !== undefined) product.inventory.trackQuantity = trackQuantity;
-    if (allowBackorder !== undefined) product.inventory.allowBackorder = allowBackorder;
-
-    // Update status based on inventory
-    if (product.inventory.trackQuantity && product.inventory.quantity === 0) {
-      product.status = 'out_of_stock';
-    } else if (product.status === 'out_of_stock' && product.inventory.quantity > 0) {
-      product.status = 'active';
-    }
-
-    await product.save();
-
-    res.json({
-      message: 'Inventory updated successfully',
-      product
-    });
-  } catch (error) {
-    next(error);
+  const product = await Product.findById(id);
+  if (!product) {
+    return next(new ErrorHandler('Product not found', 404));
   }
-};
 
-module.exports = {
-  getProducts,
-  getProduct,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  getFeaturedProducts,
-  getProductsByCategory,
-  updateInventory
-};
+  // Check if user owns the product or is admin
+  if (product.seller.toString() !== req.user.userId && req.user.role !== 'admin') {
+    return next(new ErrorHandler('Not authorized to update this product', 403));
+  }
+
+  if (quantity !== undefined) product.inventory.quantity = quantity;
+  if (trackQuantity !== undefined) product.inventory.trackQuantity = trackQuantity;
+  if (allowBackorder !== undefined) product.inventory.allowBackorder = allowBackorder;
+
+  // Update status based on inventory
+  if (product.inventory.quantity === 0 && !product.inventory.allowBackorder) {
+    product.status = 'out_of_stock';
+  } else if (product.status === 'out_of_stock') {
+    product.status = 'active';
+  }
+
+  await product.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Inventory updated successfully',
+    product
+  });
+});
+
+// Get featured products
+exports.getFeaturedProducts = catchAsyncError(async (req, res, next) => {
+  const { limit = 8 } = req.query;
+
+  const products = await Product.find({ 
+    isFeatured: true, 
+    status: 'active' 
+  })
+    .populate('category', 'name slug')
+    .populate('seller', 'name sellerProfile.storeName')
+    .limit(parseInt(limit))
+    .sort({ createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    products
+  });
+});
+
+// Get related products
+exports.getRelatedProducts = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+  const { limit = 4 } = req.query;
+
+  const product = await Product.findById(id);
+  if (!product) {
+    return next(new ErrorHandler('Product not found', 404));
+  }
+
+  const relatedProducts = await Product.find({
+    _id: { $ne: id },
+    category: product.category,
+    status: 'active'
+  })
+    .populate('category', 'name slug')
+    .limit(parseInt(limit))
+    .sort({ 'rating.average': -1, createdAt: -1 });
+
+  res.status(200).json({
+    success: true,
+    products: relatedProducts
+  });
+});

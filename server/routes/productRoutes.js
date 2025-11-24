@@ -1,31 +1,25 @@
-// routes/productRoutes.js
 const express = require('express');
 const router = express.Router();
-const {
-  getProducts,
-  getProduct,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  getFeaturedProducts,
-  getProductsByCategory,
-  updateInventory
-} = require('../controllers/productController');
-const { authMiddleware, authorize, checkOwnership, requireApprovedSeller, ROLES } = require('../middleware/auth'); // Fixed typo here
+const productController = require('../controllers/productController');
+const { authMiddleware, authorize, ROLES, checkOwnership, requireApprovedSeller } = require('../middleware/auth');
 const Product = require('../models/Product');
 
 // Public routes
-router.get('/', getProducts);
-router.get('/featured', getFeaturedProducts);
-router.get('/category/:categorySlug', getProductsByCategory);
-router.get('/:id', getProduct);
+router.get('/', productController.getProducts);
+router.get('/featured', productController.getFeaturedProducts);
+router.get('/:id', productController.getProduct);
+router.get('/:id/related', productController.getRelatedProducts);
+// router.get('/:id/reviews', productController.getProductReviews);
 
-// Protected routes - Approved sellers and admin
-router.post('/', authMiddleware, requireApprovedSeller, createProduct); // Fixed here
-router.patch('/:id/inventory', authMiddleware, checkOwnership(Product), updateInventory); // Fixed route
+// Seller routes (authenticated sellers with approved accounts)
+router.get('/seller/products', authMiddleware, requireApprovedSeller, productController.getSellerProducts);
+router.post('/', authMiddleware, requireApprovedSeller, productController.createProduct);
+router.put('/:id', authMiddleware, requireApprovedSeller, checkOwnership(Product), productController.updateProduct);
+router.delete('/:id', authMiddleware, requireApprovedSeller, checkOwnership(Product), productController.deleteProduct);
+router.patch('/:id/inventory', authMiddleware, requireApprovedSeller, checkOwnership(Product), productController.updateInventory);
 
-// Protected routes - Product ownership (sellers) or admin
-router.put('/:id', authMiddleware, checkOwnership(Product), updateProduct);
-router.delete('/:id', authMiddleware, checkOwnership(Product), deleteProduct);
+// Admin routes (can manage any product)
+router.put('/admin/:id', authMiddleware, authorize(ROLES.ADMIN), productController.updateProduct);
+router.delete('/admin/:id', authMiddleware, authorize(ROLES.ADMIN), productController.deleteProduct);
 
 module.exports = router;

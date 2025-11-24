@@ -1,4 +1,3 @@
-// models/Review.js
 const mongoose = require('mongoose');
 
 const reviewSchema = new mongoose.Schema({
@@ -51,7 +50,8 @@ const reviewSchema = new mongoose.Schema({
       ref: 'User'
     }]
   },
-  report: {
+  // CHANGED: Renamed from 'report' to 'reports' to avoid conflict
+  reports: {
     count: {
       type: Number,
       default: 0
@@ -185,12 +185,12 @@ reviewSchema.methods.removeHelpful = function(userId) {
   return false;
 };
 
-// Instance method to report review
-reviewSchema.methods.report = function(userId, reason) {
-  if (!this.report.reportedBy.includes(userId)) {
-    this.report.reportedBy.push(userId);
-    this.report.reasons.push(reason);
-    this.report.count += 1;
+// CHANGED: Renamed method from 'report' to 'addReport' to avoid conflict
+reviewSchema.methods.addReport = function(userId, reason) {
+  if (!this.reports.reportedBy.includes(userId)) {
+    this.reports.reportedBy.push(userId);
+    this.reports.reasons.push(reason);
+    this.reports.count += 1;
     return true;
   }
   return false;

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import Layout from '../components/layout/Layout';
-import Dashboard from '../components/Dashboard';
-import Products from '../components/Products';
-import Orders from '../components/Orders';
-import Cart from '../components/Cart';
-import Profile from '../components/Profile';
+// import Dashboard from '../components/Dashboard';
+// import Products from '../components/Products';
+// import Orders from '../components/Orders';
+// import Cart from '../components/Cart';
+// import Profile from '../components/Profile';
 
 const DashboardPage = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -29,9 +29,10 @@ const DashboardPage = () => {
   };
 
   return (
-    <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
-      {renderContent()}
-    </Layout>
+    // <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
+    //   {renderContent()}
+    // </Layout>
+    <Layout />
   );
 };
 

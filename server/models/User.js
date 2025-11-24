@@ -121,4 +121,7 @@ UserSchema.methods.isValidRefreshToken = async function (token) {
   return await bcrypt.compare(token, this.refreshToken);
 }
 
+
+
+
 module.exports = mongoose.model('User', UserSchema);

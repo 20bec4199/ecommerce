@@ -1,165 +1,129 @@
-const User = require('../../models/User');
-const catchAsyncError = require('../../middleware/catchAsyncError');
-const ErrorHandler = require('../../middleware/errorHandler');
+const User = require('../models/User');
+const catchAsyncError = require('../middleware/catchAsyncError');
+const ErrorHandler = require('../middleware/errorHandler');
+const { sendSuccessMail } = require('../email/emailGreetings/successMail');
 
-// @desc    Get user profile
-// @route   GET /api/users/profile
-// @access  Private
+// Get user profile
 exports.getUserProfile = catchAsyncError(async (req, res, next) => {
-  const user = await User.findById(req.user._id)
-    .select('-password -refreshToken -refreshTokenExpires');
+  const user = await User.findById(req.user.userId).select('-password -refreshToken -refreshTokenExpires');
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    user
+  });
+});
+
+// Update user profile
+exports.updateUserProfile = catchAsyncError(async (req, res, next) => {
+  const {
+    name,
+    phone,
+    dateOfBirth,
+    newsletter,
+    notifications
+  } = req.body;
+console.log(req.body);
+  const updateData = {};
+  
+  if (name) updateData.name = name;
+  if (phone !== undefined) updateData['profile.phone'] = phone;
+  if (dateOfBirth) updateData['profile.dateOfBirth'] = dateOfBirth;
+  if (newsletter !== undefined) updateData['preferences.newsletter'] = newsletter;
+  if (notifications !== undefined) updateData['preferences.notifications'] = notifications;
+ console.log(updateData);
+  const user = await User.findByIdAndUpdate(
+    req.user.userId,
+    { $set: updateData },
+    { 
+      new: true,
+      runValidators: true
+    }
+  )
+
+  console.log(user);
 
   if (!user) {
     return next(new ErrorHandler('User not found', 404));
   }
 
-  // Convert avatar buffer to base64 if exists
-  let avatarUrl = null;
-  if (user.avatar && user.avatar.data) {
-    const base64Image = user.avatar.data.toString('base64');
-    const mimeType = user.avatar.contentType || 'image/jpeg';
-    avatarUrl = `data:${mimeType};base64,${base64Image}`;
-  }
-
-  const userResponse = user.toObject();
-  userResponse.avatar = avatarUrl;
-
-  res.status(200).json({
-    success: true,
-    data: userResponse
-  });
-});
-
-// @desc    Update user profile
-// @route   PUT /api/users/profile
-// @access  Private
-exports.updateUserProfile = catchAsyncError(async (req, res, next) => {
-  const { name, phone, dateOfBirth } = req.body;
-  
-  const updateData = {
-    name,
-    'profile.phone': phone,
-    'profile.dateOfBirth': dateOfBirth
-  };
-
-  // Remove undefined fields
-  Object.keys(updateData).forEach(key => {
-    if (updateData[key] === undefined) {
-      delete updateData[key];
-    }
-  });
-
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
-    updateData,
-    { 
-      new: true, 
-      runValidators: true 
-    }
-  ).select('-password -refreshToken -refreshTokenExpires -avatar');
-
   res.status(200).json({
     success: true,
     message: 'Profile updated successfully',
-    data: user
+    user
   });
 });
 
-// @desc    Update user avatar
-// @route   PUT /api/users/avatar
-// @access  Private
-exports.updateAvatar = catchAsyncError(async (req, res, next) => {
-  if (!req.file) {
-    return next(new ErrorHandler('Please upload an image', 400));
+// Update user password
+exports.updatePassword = catchAsyncError(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return next(new ErrorHandler('Please provide current and new password', 400));
   }
 
-  try {
-    // Check file size (max 2MB)
-    if (req.file.size > 2 * 1024 * 1024) {
-      return next(new ErrorHandler('Image size should be less than 2MB', 400));
-    }
-
-    // Check file type
-    const allowedMimeTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'];
-    if (!allowedMimeTypes.includes(req.file.mimetype)) {
-      return next(new ErrorHandler('Only JPEG, JPG, PNG, and GIF images are allowed', 400));
-    }
-
-    // Update user avatar with BLOB data
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      {
-        avatar: {
-          data: req.file.buffer,
-          contentType: req.file.mimetype
-        },
-        'profile.avatar': {
-          data: req.file.buffer,
-          contentType: req.file.mimetype
-        }
-      },
-      { new: true }
-    ).select('-password -refreshToken -refreshTokenExpires');
-
-    // Convert avatar buffer to base64 for response
-    const base64Image = req.file.buffer.toString('base64');
-    const avatarUrl = `data:${req.file.mimetype};base64,${base64Image}`;
-
-    res.status(200).json({
-      success: true,
-      message: 'Avatar updated successfully',
-      data: {
-        avatar: avatarUrl
-      }
-    });
-  } catch (error) {
-    return next(new ErrorHandler('Error updating avatar', 500));
-  }
-});
-
-// @desc    Get user avatar
-// @route   GET /api/users/avatar
-// @access  Public
-exports.getAvatar = catchAsyncError(async (req, res, next) => {
-  const user = await User.findById(req.params.userId).select('avatar');
-
-  if (!user || !user.avatar || !user.avatar.data) {
-    return next(new ErrorHandler('Avatar not found', 404));
+  const user = await User.findById(req.user.userId).select('+password');
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
   }
 
-  res.set('Content-Type', user.avatar.contentType);
-  res.send(user.avatar.data);
-});
+  // Check if user has password (not social login)
+  if (!user.password) {
+    return next(new ErrorHandler('Password change not allowed for social login accounts', 400));
+  }
 
-// @desc    Delete user avatar
-// @route   DELETE /api/users/avatar
-// @access  Private
-exports.deleteAvatar = catchAsyncError(async (req, res, next) => {
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
-    {
-      $unset: { 
-        avatar: 1,
-        'profile.avatar': 1
-      }
-    },
-    { new: true }
-  ).select('-password -refreshToken -refreshTokenExpires');
+  const isPasswordMatch = await user.comparePassword(currentPassword);
+  if (!isPasswordMatch) {
+    return next(new ErrorHandler('Current password is incorrect', 400));
+  }
+
+  user.password = newPassword;
+  await user.save();
+
+  // Send email notification
+  let options = {
+    type: 'password_change',
+  };
+
+  sendSuccessMail(
+    user.email, 
+    user.name, 
+    'Password Updated Successfully - Blissora', 
+    'Your password has been changed successfully. If you did not make this change, please contact our support team immediately.',
+    options
+  ).catch(error => {
+    console.error('Failed to send password change email:', error);
+  });
 
   res.status(200).json({
     success: true,
-    message: 'Avatar deleted successfully',
-    data: user
+    message: 'Password updated successfully'
   });
 });
 
-// @desc    Add new address
-// @route   POST /api/users/address
-// @access  Private
+// Manage user addresses
 exports.addAddress = catchAsyncError(async (req, res, next) => {
-  const { type, street, city, state, country, zipCode, isDefault } = req.body;
+  const {
+    type,
+    street,
+    city,
+    state,
+    country,
+    zipCode,
+    isDefault
+  } = req.body;
 
-  const address = {
+  const user = await User.findById(req.user.userId);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  const newAddress = {
     type,
     street,
     city,
@@ -169,294 +133,481 @@ exports.addAddress = catchAsyncError(async (req, res, next) => {
     isDefault: isDefault || false
   };
 
-  const user = await User.findById(req.user._id);
-
-  // If this address is set as default, remove default from other addresses
+  // If this address is set as default, unset other defaults
   if (isDefault) {
     user.address.forEach(addr => {
       addr.isDefault = false;
     });
   }
 
-  user.address.push(address);
+  user.address.push(newAddress);
   await user.save();
 
-  res.status(201).json({
+  res.status(200).json({
     success: true,
     message: 'Address added successfully',
-    data: user.address
+    addresses: user.address
   });
 });
 
-// @desc    Update address
-// @route   PUT /api/users/address/:addressId
-// @access  Private
 exports.updateAddress = catchAsyncError(async (req, res, next) => {
   const { addressId } = req.params;
-  const { type, street, city, state, country, zipCode, isDefault } = req.body;
+  const {
+    type,
+    street,
+    city,
+    state,
+    country,
+    zipCode,
+    isDefault
+  } = req.body;
 
-  const user = await User.findById(req.user._id);
-  const address = user.address.id(addressId);
+  const user = await User.findById(req.user.userId);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
 
-  if (!address) {
+  const addressIndex = user.address.id(addressId);
+  if (!addressIndex) {
     return next(new ErrorHandler('Address not found', 404));
   }
 
-  // If setting as default, remove default from other addresses
+  // Update address fields
+  if (type) addressIndex.type = type;
+  if (street) addressIndex.street = street;
+  if (city) addressIndex.city = city;
+  if (state) addressIndex.state = state;
+  if (country) addressIndex.country = country;
+  if (zipCode) addressIndex.zipCode = zipCode;
+
+  // Handle default address
   if (isDefault) {
     user.address.forEach(addr => {
-      addr.isDefault = false;
+      addr.isDefault = addr._id.toString() === addressId;
     });
   }
-
-  // Update address fields
-  if (type) address.type = type;
-  if (street) address.street = street;
-  if (city) address.city = city;
-  if (state) address.state = state;
-  if (country) address.country = country;
-  if (zipCode) address.zipCode = zipCode;
-  if (isDefault !== undefined) address.isDefault = isDefault;
 
   await user.save();
 
   res.status(200).json({
     success: true,
     message: 'Address updated successfully',
-    data: user.address
+    addresses: user.address
   });
 });
 
-// @desc    Delete address
-// @route   DELETE /api/users/address/:addressId
-// @access  Private
 exports.deleteAddress = catchAsyncError(async (req, res, next) => {
   const { addressId } = req.params;
 
-  const user = await User.findById(req.user._id);
-  user.address.pull(addressId);
+  const user = await User.findById(req.user.userId);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  user.address.pull({ _id: addressId });
   await user.save();
 
   res.status(200).json({
     success: true,
     message: 'Address deleted successfully',
-    data: user.address
+    addresses: user.address
   });
 });
 
-// @desc    Get all addresses
-// @route   GET /api/users/address
-// @access  Private
 exports.getAddresses = catchAsyncError(async (req, res, next) => {
-  const user = await User.findById(req.user._id).select('address');
-
-  res.status(200).json({
-    success: true,
-    data: user.address
-  });
-});
-
-// @desc    Set default address
-// @route   PUT /api/users/address/:addressId/default
-// @access  Private
-exports.setDefaultAddress = catchAsyncError(async (req, res, next) => {
-  const { addressId } = req.params;
-
-  const user = await User.findById(req.user._id);
+  const user = await User.findById(req.user.userId).select('address');
   
-  // Remove default from all addresses
-  user.address.forEach(addr => {
-    addr.isDefault = false;
-  });
-
-  // Set the selected address as default
-  const address = user.address.id(addressId);
-  if (!address) {
-    return next(new ErrorHandler('Address not found', 404));
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
   }
-
-  address.isDefault = true;
-  await user.save();
 
   res.status(200).json({
     success: true,
-    message: 'Default address updated successfully',
-    data: user.address
+    addresses: user.address
   });
 });
 
-// @desc    Update user preferences
-// @route   PUT /api/users/preferences
-// @access  Private
-exports.updatePreferences = catchAsyncError(async (req, res, next) => {
-  const { newsletter, notifications } = req.body;
+// Seller profile management
+exports.createSellerProfile = catchAsyncError(async (req, res, next) => {
+  const {
+    storeName,
+    storeDescription,
+    businessEmail,
+    taxId
+  } = req.body;
 
-  const updateData = {};
-  if (newsletter !== undefined) updateData['preferences.newsletter'] = newsletter;
-  if (notifications !== undefined) updateData['preferences.notifications'] = notifications;
-
-  const user = await User.findByIdAndUpdate(
-    req.user._id,
-    updateData,
-    { new: true }
-  ).select('-password -refreshToken -refreshTokenExpires -avatar');
-
-  res.status(200).json({
-    success: true,
-    message: 'Preferences updated successfully',
-    data: user.preferences
-  });
-});
-
-// @desc    Change password
-// @route   PUT /api/users/change-password
-// @access  Private
-exports.changePassword = catchAsyncError(async (req, res, next) => {
-  const { currentPassword, newPassword } = req.body;
-
-  const user = await User.findById(req.user._id).select('+password');
-
-  // Check current password
-  const isPasswordMatch = await user.comparePassword(currentPassword);
-  if (!isPasswordMatch) {
-    return next(new ErrorHandler('Current password is incorrect', 400));
+  if (!storeName || !storeDescription || !businessEmail) {
+    return next(new ErrorHandler('Please provide store name, description and business email', 400));
   }
 
-  // Update password
-  user.password = newPassword;
-  await user.save();
-
-  res.status(200).json({
-    success: true,
-    message: 'Password changed successfully'
-  });
-});
-
-// @desc    Apply for seller account
-// @route   POST /api/users/become-seller
-// @access  Private
-exports.becomeSeller = catchAsyncError(async (req, res, next) => {
-  const { storeName, storeDescription, businessEmail, taxId } = req.body;
-
-  const user = await User.findById(req.user._id);
-
-  // Check if already a seller
-  if (user.role === 'seller') {
-    return next(new ErrorHandler('You are already a seller', 400));
+  const user = await User.findById(req.user.userId);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
   }
 
-  // Check if already applied
+  // Check if user already has a seller profile
   if (user.sellerProfile.storeName) {
-    return next(new ErrorHandler('You have already applied for seller account', 400));
+    return next(new ErrorHandler('Seller profile already exists', 400));
   }
 
   user.sellerProfile = {
     storeName,
     storeDescription,
     businessEmail,
-    taxId,
+    taxId: taxId || '',
     isApproved: false,
     rating: 0,
     totalSales: 0
   };
 
+  user.role = 'seller';
   await user.save();
 
-  res.status(200).json({
-    success: true,
-    message: 'Seller application submitted successfully. Waiting for approval.',
-    data: user.sellerProfile
+  // Send email notification
+  let options = {
+    type: 'seller_registration',
+  };
+
+  sendSuccessMail(
+    user.email, 
+    user.name, 
+    'Seller Profile Created - Blissora', 
+    `Your seller profile "${storeName}" has been created successfully and is pending approval. You will be notified once it's approved.`,
+    options
+  ).catch(error => {
+    console.error('Failed to send seller registration email:', error);
   });
-});
-
-// @desc    Get seller profile
-// @route   GET /api/users/seller-profile
-// @access  Private (Seller)
-exports.getSellerProfile = catchAsyncError(async (req, res, next) => {
-  const user = await User.findById(req.user._id)
-    .select('-password -refreshToken -refreshTokenExpires -avatar');
-
-  if (user.role !== 'seller') {
-    return next(new ErrorHandler('You are not a seller', 403));
-  }
 
   res.status(200).json({
     success: true,
-    data: user.sellerProfile
+    message: 'Seller profile created successfully and pending approval',
+    sellerProfile: user.sellerProfile
   });
 });
 
-// @desc    Update seller profile
-// @route   PUT /api/users/seller-profile
-// @access  Private (Seller)
 exports.updateSellerProfile = catchAsyncError(async (req, res, next) => {
-  const { storeName, storeDescription, businessEmail } = req.body;
+  const {
+    storeName,
+    storeDescription,
+    businessEmail,
+    taxId
+  } = req.body;
 
-  const user = await User.findById(req.user._id);
-
-  if (user.role !== 'seller') {
-    return next(new ErrorHandler('You are not a seller', 403));
+  const user = await User.findById(req.user.userId);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
   }
 
-  if (storeName) user.sellerProfile.storeName = storeName;
-  if (storeDescription) user.sellerProfile.storeDescription = storeDescription;
-  if (businessEmail) user.sellerProfile.businessEmail = businessEmail;
+  if (!user.sellerProfile.storeName) {
+    return next(new ErrorHandler('Seller profile not found', 404));
+  }
 
-  await user.save();
+  // Only allow updates if profile is not approved or user is admin
+  if (user.sellerProfile.isApproved && user.role !== 'admin') {
+    return next(new ErrorHandler('Cannot update approved seller profile', 400));
+  }
+
+  const updateData = {};
+  if (storeName) updateData['sellerProfile.storeName'] = storeName;
+  if (storeDescription) updateData['sellerProfile.storeDescription'] = storeDescription;
+  if (businessEmail) updateData['sellerProfile.businessEmail'] = businessEmail;
+  if (taxId !== undefined) updateData['sellerProfile.taxId'] = taxId;
+
+  const updatedUser = await User.findByIdAndUpdate(
+    req.user._id,
+    { $set: updateData },
+    { 
+      new: true,
+      runValidators: true
+    }
+  ).select('-password -refreshToken -refreshTokenExpires');
 
   res.status(200).json({
     success: true,
     message: 'Seller profile updated successfully',
-    data: user.sellerProfile
+    sellerProfile: updatedUser.sellerProfile
   });
 });
 
-// @desc    Delete user account
-// @route   DELETE /api/users/delete-account
-// @access  Private
-exports.deleteAccount = catchAsyncError(async (req, res, next) => {
-  const { password } = req.body;
+// Admin functions
+exports.getAllUsers = catchAsyncError(async (req, res, next) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
 
-  const user = await User.findById(req.user._id).select('+password');
+  const users = await User.find()
+    .select('-password -refreshToken -refreshTokenExpires')
+    .skip(skip)
+    .limit(limit)
+    .sort({ createdAt: -1 });
 
-  // Verify password
-  const isPasswordMatch = await user.comparePassword(password);
-  if (!isPasswordMatch) {
-    return next(new ErrorHandler('Password is incorrect', 400));
+  const totalUsers = await User.countDocuments();
+  const totalPages = Math.ceil(totalUsers / limit);
+
+  res.status(200).json({
+    success: true,
+    users,
+    pagination: {
+      currentPage: page,
+      totalPages,
+      totalUsers,
+      hasNext: page < totalPages,
+      hasPrev: page > 1
+    }
+  });
+});
+
+exports.getUserById = catchAsyncError(async (req, res, next) => {
+  const user = await User.findById(req.params.id)
+    .select('-password -refreshToken -refreshTokenExpires');
+
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
   }
 
-  // Delete user
-  await User.findByIdAndDelete(req.user._id);
-
-  // Clear cookies
-  res.clearCookie('refreshToken');
-  res.clearCookie('accessToken');
-
   res.status(200).json({
     success: true,
-    message: 'Account deleted successfully'
+    user
   });
 });
 
-// @desc    Get user dashboard stats
-// @route   GET /api/users/dashboard
-// @access  Private
-exports.getDashboardStats = catchAsyncError(async (req, res, next) => {
-  const user = await User.findById(req.user._id)
-    .select('-password -refreshToken -refreshTokenExpires -avatar');
+exports.updateUserRole = catchAsyncError(async (req, res, next) => {
+  const { role } = req.body;
+  const { id } = req.params;
 
-  // You can integrate with order service to get actual stats
-  const dashboardStats = {
-    totalOrders: 0, // Get from orders collection
-    pendingOrders: 0, // Get from orders collection
-    wishlistItems: 0, // Get from wishlist collection
-    addresses: user.address.length,
-    isSeller: user.role === 'seller',
-    sellerApproved: user.sellerProfile?.isApproved || false
+  if (!['user', 'admin', 'seller'].includes(role)) {
+    return next(new ErrorHandler('Invalid role', 400));
+  }
+
+  const user = await User.findByIdAndUpdate(
+    id,
+    { role },
+    { 
+      new: true,
+      runValidators: true
+    }
+  ).select('-password -refreshToken -refreshTokenExpires');
+
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'User role updated successfully',
+    user
+  });
+});
+
+exports.approveSeller = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+
+  const user = await User.findById(id);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  if (!user.sellerProfile.storeName) {
+    return next(new ErrorHandler('User does not have a seller profile', 400));
+  }
+
+  user.sellerProfile.isApproved = true;
+  await user.save();
+
+  // Send approval email
+  let options = {
+    type: 'seller_approval',
   };
 
+  sendSuccessMail(
+    user.email, 
+    user.name, 
+    'Seller Profile Approved - Blissora', 
+    `Congratulations! Your seller profile "${user.sellerProfile.storeName}" has been approved. You can now start selling on our platform.`,
+    options
+  ).catch(error => {
+    console.error('Failed to send seller approval email:', error);
+  });
+
   res.status(200).json({
     success: true,
-    data: dashboardStats
+    message: 'Seller profile approved successfully',
+    sellerProfile: user.sellerProfile
   });
 });
+
+exports.deleteUser = catchAsyncError(async (req, res, next) => {
+  const { id } = req.params;
+
+  // Prevent users from deleting themselves
+  if (req.user._id.toString() === id) {
+    return next(new ErrorHandler('You cannot delete your own account', 400));
+  }
+
+  const user = await User.findByIdAndDelete(id);
+
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'User deleted successfully'
+  });
+});
+
+// Upload avatar (you'll need to handle file upload with multer)
+exports.uploadAvatar = catchAsyncError(async (req, res, next) => {
+  if (!req.file) {
+    return next(new ErrorHandler('Please upload an image', 400));
+  }
+
+  const user = await User.findById(req.user._id);
+  
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  user.profile.avatar = {
+    data: req.file.buffer,
+    contentType: req.file.mimetype
+  };
+
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Avatar uploaded successfully'
+  });
+});
+
+// Get user statistics (for admin dashboard)
+exports.getUserStats = catchAsyncError(async (req, res, next) => {
+  const totalUsers = await User.countDocuments();
+  const totalSellers = await User.countDocuments({ role: 'seller' });
+  const approvedSellers = await User.countDocuments({ 'sellerProfile.isApproved': true });
+  const newUsersThisMonth = await User.countDocuments({
+    createdAt: {
+      $gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+    }
+  });
+
+  res.status(200).json({
+    success: true,
+    stats: {
+      totalUsers,
+      totalSellers,
+      approvedSellers,
+      newUsersThisMonth
+    }
+  });
+});
+
+
+exports.getSellerDashboard = catchAsyncError(async (req, res, next) => {
+    const user = await User.findById(req.user.userId)
+      .select('sellerProfile name email')
+      .populate('sellerStats'); // You might want to create a separate stats model
+  
+    if (!user) {
+      return next(new ErrorHandler('User not found', 404));
+    }
+  
+    // You can add more dashboard data here
+    const dashboardData = {
+      storeName: user.sellerProfile.storeName,
+      totalSales: user.sellerProfile.totalSales,
+      rating: user.sellerProfile.rating,
+      isApproved: user.sellerProfile.isApproved,
+      // Add more stats as needed
+    };
+  
+    res.status(200).json({
+      success: true,
+      dashboard: dashboardData
+    });
+  });
+  
+  // Get seller analytics
+  exports.getSellerAnalytics = catchAsyncError(async (req, res, next) => {
+    // Implement seller analytics logic here
+    // This could include sales data, visitor stats, etc.
+    
+    const analytics = {
+      monthlySales: [],
+      topProducts: [],
+      // Add analytics data
+    };
+  
+    res.status(200).json({
+      success: true,
+      analytics
+    });
+  });
+  
+  // Get user profile by ID (for admin or self)
+  exports.getUserProfileById = catchAsyncError(async (req, res, next) => {
+    const user = await User.findById(req.params.id)
+      .select('-password -refreshToken -refreshTokenExpires');
+  
+    if (!user) {
+      return next(new ErrorHandler('User not found', 404));
+    }
+  
+    res.status(200).json({
+      success: true,
+      user
+    });
+  });
+  
+  // Update user profile by ID (for admin or self)
+  exports.updateUserProfileById = catchAsyncError(async (req, res, next) => {
+    const {
+      name,
+      phone,
+      dateOfBirth,
+      newsletter,
+      notifications,
+      role // Only admin should be able to update role
+    } = req.body;
+  
+    const updateData = {};
+    
+    if (name) updateData.name = name;
+    if (phone !== undefined) updateData['profile.phone'] = phone;
+    if (dateOfBirth) updateData['profile.dateOfBirth'] = dateOfBirth;
+    if (newsletter !== undefined) updateData['preferences.newsletter'] = newsletter;
+    if (notifications !== undefined) updateData['preferences.notifications'] = notifications;
+  
+    // Only allow role update if user is admin
+    if (req.user.role === ROLES.ADMIN && role) {
+      if (!['user', 'admin', 'seller'].includes(role)) {
+        return next(new ErrorHandler('Invalid role', 400));
+      }
+      updateData.role = role;
+    }
+  
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { 
+        new: true,
+        runValidators: true
+      }
+    ).select('-password -refreshToken -refreshTokenExpires');
+  
+    if (!user) {
+      return next(new ErrorHandler('User not found', 404));
+    }
+  
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user
+    });
+  });
