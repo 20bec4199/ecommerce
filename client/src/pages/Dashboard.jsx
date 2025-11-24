@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Layout from '../components/layout/Layout';
+import DebugTheme from '../components/DebugTheme';
 // import Dashboard from '../components/Dashboard';
 // import Products from '../components/Products';
 // import Orders from '../components/Orders';
@@ -32,7 +33,9 @@ const DashboardPage = () => {
     // <Layout activeTab={activeTab} setActiveTab={setActiveTab}>
     //   {renderContent()}
     // </Layout>
-    <Layout />
+    <Layout >
+      <DebugTheme />
+    </Layout>
   );
 };
 

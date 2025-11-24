@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { getAllProducts } from '../services/product';
 import ProductCard from './products/ProductCard';
 import Card from './ui/Card';
+import DebugTheme from './DebugTheme';
 
 const Dashboard = () => {
   const { user } = useAuth();
