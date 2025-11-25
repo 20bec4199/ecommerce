@@ -118,10 +118,12 @@ const appReducer = (state, action) => {
       };
     
     case 'ADD_TO_CART':
-      const existingItemIndex = state.cart.items.findIndex(item => 
+      console.log(state.cart);
+      const existingItemIndex = state.cart.cart.items.findIndex(item => 
         item.product._id === action.payload.product._id &&
         isVariantEqual(item.variant, action.payload.variant)
       );
+      console.log(existingItemIndex);
 
       let updatedCartItems;
       if (existingItemIndex > -1) {
@@ -143,7 +145,7 @@ const appReducer = (state, action) => {
       };
     
     case 'UPDATE_CART_ITEM':
-      const updatedItems = state.cart.items.map(item =>
+      const updatedItems = state.cart.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, ...action.payload.updates }
           : item
@@ -158,7 +160,7 @@ const appReducer = (state, action) => {
       };
     
     case 'REMOVE_FROM_CART':
-      const filteredItems = state.cart.items.filter(
+      const filteredItems = state.cart.cart.items.filter(
         item => item._id !== action.payload
       );
       
@@ -171,11 +173,12 @@ const appReducer = (state, action) => {
       };
     
     case 'UPDATE_CART_QUANTITY':
-      const quantityUpdatedItems = state.cart.items.map(item =>
+      const quantityUpdatedItems = state.cart.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, quantity: action.payload.quantity }
           : item
       );
+      console.log(quantityUpdatedItems)
       
       return {
         ...state,
@@ -657,6 +660,7 @@ export const AppProvider = ({ children }) => {
     try {
       dispatch({ type: 'PRODUCTS_LOADING' });
       const response = await productAPI.getProducts(filters);
+      console.log(response)
       dispatch({ 
         type: 'SET_PRODUCTS', 
         payload: {

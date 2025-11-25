@@ -8,7 +8,40 @@ const API = axios.create({
 });
 
 // Request cache to prevent duplicates
-const requestCache = new Map();
+// const requestCache = new Map();
+
+// API.interceptors.request.use(
+//   (config) => {
+//     const token = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
+//     if (token) {
+//       config.headers.Authorization = `Bearer ${token}`;
+//     }
+    
+//     // Create request signature to identify duplicates
+//     const requestSignature = `${config.method}-${config.url}-${JSON.stringify(config.data || config.params)}`;
+    
+//     // // If same request is already in progress, cancel this one
+//     // if (requestCache.has(requestSignature)) {
+//     //   const source = requestCache.get(requestSignature);
+//     //   source.cancel('Duplicate request cancelled');
+//     // }
+    
+//     // Create cancel token for this request
+//     // const source = axios.CancelToken.source();
+//     // config.cancelToken = source.token;
+//     // requestCache.set(requestSignature, source);
+    
+//     // Remove from cache after request completes (handled in response interceptor)
+//     setTimeout(() => {
+//       requestCache.delete(requestSignature);
+//     }, 1000);
+    
+//     return config;
+//   },
+//   (error) => {
+//     return Promise.reject(error);
+//   }
+// );
 
 API.interceptors.request.use(
   (config) => {
@@ -16,32 +49,11 @@ API.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
-    
-    // Create request signature to identify duplicates
-    const requestSignature = `${config.method}-${config.url}-${JSON.stringify(config.data || config.params)}`;
-    
-    // If same request is already in progress, cancel this one
-    if (requestCache.has(requestSignature)) {
-      const source = requestCache.get(requestSignature);
-      source.cancel('Duplicate request cancelled');
-    }
-    
-    // Create cancel token for this request
-    const source = axios.CancelToken.source();
-    config.cancelToken = source.token;
-    requestCache.set(requestSignature, source);
-    
-    // Remove from cache after request completes (handled in response interceptor)
-    setTimeout(() => {
-      requestCache.delete(requestSignature);
-    }, 1000);
-    
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
-  }
+  (error) => Promise.reject(error)
 );
+
 
 API.interceptors.response.use(
   (response) => {

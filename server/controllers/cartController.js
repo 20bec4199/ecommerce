@@ -36,6 +36,7 @@ exports.getCart = catchAsyncError(async (req, res, next) => {
 // Add item to cart
 exports.addToCart = catchAsyncError(async (req, res, next) => {
   const { product, quantity, variant, seller } = req.body;
+  console.log(req.body);
 
   // Validate product exists and is available
   const productDoc = await Product.findById(product);

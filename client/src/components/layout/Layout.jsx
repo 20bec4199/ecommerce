@@ -1,41 +1,52 @@
+// components/Layout/Layout.jsx
 import React, { useState } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
-import Footer from './Footer';
 import { useTheme } from '../../hooks/useTheme';
 
+// Import your page components
+import Dashboard from '../../pages/Dashboard';
+import ProductsPage from '../../pages/ProductsPage';
+import ProfilePage from '../../pages/ProfilePage';
+import CartPage from '../../pages/CartPage';
+import OrdersPage from '../../pages/OrdersPage';
 
-const Layout = ({ children }) => {
+const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeItem, setActiveItem] = useState('products');
   const { theme } = useTheme();
 
-  // Mock user data - replace with actual user data from your auth system
-  const user = {
-    name: 'John Doe',
-    avatar: '/profile-photo.jpg',
+  const toggleSidebar = () => {
+    setSidebarOpen(!sidebarOpen);
+  };
+
+  const closeSidebar = () => {
+    setSidebarOpen(false);
   };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
-      <Sidebar
+      {/* Sidebar */}
+      <Sidebar 
         isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        activeItem={activeItem}
-        setActiveItem={setActiveItem}
+        onClose={closeSidebar}
       />
-      
-      <div className="lg:ml-0 flex flex-col min-h-screen">
-        <Header
-          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          user={user}
-        />
+
+      {/* Main Layout */}
+      <div className="lg:ml-64 transition-all duration-300">
+        {/* Header */}
+        <Header onToggleSidebar={toggleSidebar} />
         
-        <main className="flex-1">
-          {children}
+        {/* Main Content */}
+        <main className="min-h-screen">
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="products" element={<ProductsPage />} />
+            <Route path="profile" element={<ProfilePage />} />
+            <Route path="cart" element={<CartPage />} />
+            <Route path="orders" element={<OrdersPage />} />
+          </Routes>
         </main>
-        
-        <Footer />
       </div>
     </div>
   );
