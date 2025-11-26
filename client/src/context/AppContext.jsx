@@ -1,3 +1,4 @@
+// context/AppContext.js
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { cartAPI, wishlistAPI, orderAPI, productAPI } from '../services/api';
 import { useAuth } from './AuthContext';
@@ -31,7 +32,7 @@ const initialState = {
     error: null
   },
   
-  // Products with filters (matches Product model)
+  // Products with filters
   products: {
     items: [],
     filters: {
@@ -53,7 +54,7 @@ const initialState = {
     }
   },
   
-  // Categories (matches Category model)
+  // Categories
   categories: {
     list: [],
     tree: [],
@@ -62,7 +63,7 @@ const initialState = {
     error: null
   },
   
-  // Orders (matches Order model)
+  // Orders
   orders: {
     list: [],
     currentOrder: null,
@@ -70,7 +71,7 @@ const initialState = {
     error: null
   },
   
-  // Reviews (matches Review model)
+  // Reviews
   reviews: {
     list: [],
     productReviews: {},
@@ -84,13 +85,13 @@ const initialState = {
     sidebarOpen: false,
     modal: {
       isOpen: false,
-      type: '', // 'login', 'cart', 'checkout', 'review', 'address'
+      type: '',
       data: null
     },
     notifications: []
   },
   
-  // Address management (from User model)
+  // Address management
   addresses: {
     list: [],
     selectedAddress: null,
@@ -99,11 +100,11 @@ const initialState = {
   }
 };
 
-// Reducer function
+// Reducer function with optimistic updates
 const appReducer = (state, action) => {
   switch (action.type) {
     
-    // Cart actions (matches Cart schema)
+    // Cart actions
     case 'CART_LOADING':
       return { ...state, cart: { ...state.cart, loading: true, error: null } };
     
@@ -117,35 +118,93 @@ const appReducer = (state, action) => {
         } 
       };
     
-    case 'ADD_TO_CART':
-      console.log(state.cart);
-      const existingItemIndex = state.cart.cart.items.findIndex(item => 
-        item.product._id === action.payload.product._id &&
-        isVariantEqual(item.variant, action.payload.variant)
+    // Optimistic update cases
+    case 'ADD_TO_CART_OPTIMISTIC':
+      const newItem = action.payload;
+      const existingItemIndex = state.cart.items.findIndex(item => 
+        item.product._id === newItem.product._id &&
+        isVariantEqual(item.variant, newItem.variant)
       );
-      console.log(existingItemIndex);
 
-      let updatedCartItems;
+      let updatedCartItemsOptimistic;
       if (existingItemIndex > -1) {
-        updatedCartItems = state.cart.items.map((item, index) =>
+        updatedCartItemsOptimistic = state.cart.items.map((item, index) =>
           index === existingItemIndex
-            ? { ...item, quantity: item.quantity + action.payload.quantity }
+            ? { ...item, quantity: item.quantity + newItem.quantity }
             : item
         );
       } else {
-        updatedCartItems = [...state.cart.items, action.payload];
+        updatedCartItemsOptimistic = [...state.cart.items, newItem];
       }
 
       return {
         ...state,
         cart: {
           ...state.cart,
-          items: updatedCartItems
+          items: updatedCartItemsOptimistic,
+          loading: false,
+          error: null
+        }
+      };
+
+    case 'UPDATE_CART_AFTER_ADD':
+      const { tempId, realItem, cart } = action.payload;
+      const itemsAfterAdd = state.cart.items.map(item =>
+        item._id === tempId ? { ...realItem, _id: realItem._id } : item
+      );
+      
+      return {
+        ...state,
+        cart: {
+          ...state.cart,
+          items: itemsAfterAdd,
+          summary: cart.summary
+        }
+      };
+
+    case 'REMOVE_FROM_CART_OPTIMISTIC':
+      const filteredItemsOptimistic = state.cart.items.filter(
+        item => item._id !== action.payload
+      );
+      
+      return {
+        ...state,
+        cart: {
+          ...state.cart,
+          items: filteredItemsOptimistic
+        }
+      };
+
+    case 'UPDATE_CART_QUANTITY_OPTIMISTIC':
+      const quantityUpdatedItemsOptimistic = state.cart.items.map(item =>
+        item._id === action.payload.itemId
+          ? { ...item, quantity: action.payload.quantity }
+          : item
+      );
+      
+      return {
+        ...state,
+        cart: {
+          ...state.cart,
+          items: quantityUpdatedItemsOptimistic
+        }
+      };
+
+    case 'REMOVE_OPTIMISTIC_ITEM':
+      const itemsAfterRemove = state.cart.items.filter(
+        item => item._id !== action.payload
+      );
+      
+      return {
+        ...state,
+        cart: {
+          ...state.cart,
+          items: itemsAfterRemove
         }
       };
     
     case 'UPDATE_CART_ITEM':
-      const updatedItems = state.cart.cart.items.map(item =>
+      const updatedItems = state.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, ...action.payload.updates }
           : item
@@ -160,7 +219,7 @@ const appReducer = (state, action) => {
       };
     
     case 'REMOVE_FROM_CART':
-      const filteredItems = state.cart.cart.items.filter(
+      const filteredItems = state.cart.items.filter(
         item => item._id !== action.payload
       );
       
@@ -173,12 +232,11 @@ const appReducer = (state, action) => {
       };
     
     case 'UPDATE_CART_QUANTITY':
-      const quantityUpdatedItems = state.cart.cart.items.map(item =>
+      const quantityUpdatedItems = state.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, quantity: action.payload.quantity }
           : item
       );
-      console.log(quantityUpdatedItems)
       
       return {
         ...state,
@@ -305,7 +363,7 @@ const appReducer = (state, action) => {
         }
       };
     
-    // Order actions (matches Order schema)
+    // Order actions
     case 'SET_ORDERS':
       return {
         ...state,
@@ -352,7 +410,7 @@ const appReducer = (state, action) => {
         }
       };
     
-    // Review actions (matches Review schema)
+    // Review actions
     case 'SET_PRODUCT_REVIEWS':
       return {
         ...state,
@@ -384,40 +442,7 @@ const appReducer = (state, action) => {
         }
       };
     
-    case 'MARK_REVIEW_HELPFUL':
-      const { productId: reviewProductId, reviewId, userId } = action.payload;
-      const productReviews = state.reviews.productReviews[reviewProductId] || [];
-      
-      const updatedProductReviews = productReviews.map(review => {
-        if (review._id === reviewId) {
-          const isAlreadyHelpful = review.helpful.users.includes(userId);
-          return {
-            ...review,
-            helpful: {
-              count: isAlreadyHelpful 
-                ? Math.max(0, review.helpful.count - 1)
-                : review.helpful.count + 1,
-              users: isAlreadyHelpful
-                ? review.helpful.users.filter(id => id !== userId)
-                : [...review.helpful.users, userId]
-            }
-          };
-        }
-        return review;
-      });
-      
-      return {
-        ...state,
-        reviews: {
-          ...state.reviews,
-          productReviews: {
-            ...state.reviews.productReviews,
-            [reviewProductId]: updatedProductReviews
-          }
-        }
-      };
-    
-    // Address actions (from User schema)
+    // Address actions
     case 'SET_ADDRESSES':
       return {
         ...state,
@@ -540,7 +565,7 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'SET_CART', payload: initialState.cart });
       dispatch({ type: 'SET_WISHLIST', payload: [] });
       dispatch({ type: 'SET_ORDERS', payload: [] });
-      dispatch({ type: 'SET_ADDRESSES', payload: user?.address || [] });
+      dispatch({ type: 'SET_ADDRESSES', payload: [] });
     }
   }, [user]);
 
@@ -549,15 +574,15 @@ export const AppProvider = ({ children }) => {
       // Load cart
       dispatch({ type: 'CART_LOADING' });
       const cartResponse = await cartAPI.getCart();
-      dispatch({ type: 'SET_CART', payload: cartResponse.data });
+      dispatch({ type: 'SET_CART', payload: cartResponse.data.cart });
       
       // Load wishlist
       const wishlistResponse = await wishlistAPI.getWishlist();
-      dispatch({ type: 'SET_WISHLIST', payload: wishlistResponse.data });
+      dispatch({ type: 'SET_WISHLIST', payload: wishlistResponse.data.wishlist || [] });
       
       // Load orders
       const ordersResponse = await orderAPI.getOrders();
-      dispatch({ type: 'SET_ORDERS', payload: ordersResponse.data });
+      dispatch({ type: 'SET_ORDERS', payload: ordersResponse.data.orders || [] });
       
       // Load addresses (from user profile)
       dispatch({ type: 'SET_ADDRESSES', payload: user.address || [] });
@@ -568,7 +593,7 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Cart actions
+  // Cart actions with optimistic updates
   const addToCart = async (product, quantity = 1, variant = null) => {
     try {
       const cartItem = {
@@ -579,10 +604,31 @@ export const AppProvider = ({ children }) => {
         seller: product.seller
       };
 
+      // Optimistically update UI
+      const optimisticItem = {
+        _id: `temp-${Date.now()}`,
+        product: { _id: product._id, name: product.name, images: product.images },
+        quantity,
+        price: variant?.price || product.price,
+        variant: variant || undefined,
+        seller: product.seller
+      };
+      
+      dispatch({ type: 'ADD_TO_CART_OPTIMISTIC', payload: optimisticItem });
+
       const response = await cartAPI.addToCart(cartItem);
-      dispatch({ type: 'ADD_TO_CART', payload: response.data.item });
+      
+      // Replace optimistic item with real data
+      dispatch({ type: 'UPDATE_CART_AFTER_ADD', payload: {
+        tempId: optimisticItem._id,
+        realItem: response.data.item,
+        cart: response.data.cart
+      }});
+      
       return response.data;
     } catch (error) {
+      // Rollback on error
+      dispatch({ type: 'REMOVE_OPTIMISTIC_ITEM', payload: `temp-${Date.now()}` });
       dispatch({ type: 'CART_ERROR', payload: error.message });
       throw error;
     }
@@ -590,9 +636,16 @@ export const AppProvider = ({ children }) => {
 
   const removeFromCart = async (itemId) => {
     try {
+      // Optimistically remove from UI
+      dispatch({ type: 'REMOVE_FROM_CART_OPTIMISTIC', payload: itemId });
+      
       await cartAPI.removeFromCart(itemId);
-      dispatch({ type: 'REMOVE_FROM_CART', payload: itemId });
+      
+      // No need to reload cart - we already updated optimistically
     } catch (error) {
+      // Rollback on error - reload actual cart state
+      const cartResponse = await cartAPI.getCart();
+      dispatch({ type: 'SET_CART', payload: cartResponse.data.cart });
       dispatch({ type: 'CART_ERROR', payload: error.message });
       throw error;
     }
@@ -600,9 +653,16 @@ export const AppProvider = ({ children }) => {
 
   const updateCartQuantity = async (itemId, quantity) => {
     try {
+      // Optimistically update quantity in UI
+      dispatch({ type: 'UPDATE_CART_QUANTITY_OPTIMISTIC', payload: { itemId, quantity } });
+      
       await cartAPI.updateQuantity(itemId, quantity);
-      dispatch({ type: 'UPDATE_CART_QUANTITY', payload: { itemId, quantity } });
+      
+      // No need to reload cart - we already updated optimistically
     } catch (error) {
+      // Rollback on error - reload actual cart state
+      const cartResponse = await cartAPI.getCart();
+      dispatch({ type: 'SET_CART', payload: cartResponse.data.cart });
       dispatch({ type: 'CART_ERROR', payload: error.message });
       throw error;
     }
@@ -611,7 +671,7 @@ export const AppProvider = ({ children }) => {
   const applyCoupon = async (couponCode) => {
     try {
       const response = await cartAPI.applyCoupon(couponCode);
-      dispatch({ type: 'APPLY_COUPON', payload: response.data.coupon });
+      dispatch({ type: 'SET_CART', payload: response.data.cart });
       return response.data;
     } catch (error) {
       throw error;
@@ -620,8 +680,8 @@ export const AppProvider = ({ children }) => {
 
   const removeCoupon = async () => {
     try {
-      await cartAPI.removeCoupon();
-      dispatch({ type: 'REMOVE_COUPON' });
+      const response = await cartAPI.removeCoupon();
+      dispatch({ type: 'SET_CART', payload: response.data.cart });
     } catch (error) {
       throw error;
     }
@@ -629,8 +689,8 @@ export const AppProvider = ({ children }) => {
 
   const clearCart = async () => {
     try {
-      await cartAPI.clearCart();
-      dispatch({ type: 'CLEAR_CART' });
+      const response = await cartAPI.clearCart();
+      dispatch({ type: 'SET_CART', payload: response.data.cart });
     } catch (error) {
       throw error;
     }
@@ -660,7 +720,6 @@ export const AppProvider = ({ children }) => {
     try {
       dispatch({ type: 'PRODUCTS_LOADING' });
       const response = await productAPI.getProducts(filters);
-      console.log(response)
       dispatch({ 
         type: 'SET_PRODUCTS', 
         payload: {
@@ -765,18 +824,6 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const markReviewHelpful = async (productId, reviewId, userId) => {
-    try {
-      await productAPI.markReviewHelpful(reviewId);
-      dispatch({ 
-        type: 'MARK_REVIEW_HELPFUL', 
-        payload: { productId, reviewId, userId } 
-      });
-    } catch (error) {
-      throw error;
-    }
-  };
-
   // Address actions
   const addAddress = async (addressData) => {
     try {
@@ -833,7 +880,6 @@ export const AppProvider = ({ children }) => {
     };
     dispatch({ type: 'ADD_NOTIFICATION', payload: notification });
     
-    // Auto remove after duration
     setTimeout(() => {
       dispatch({ type: 'REMOVE_NOTIFICATION', payload: notification.id });
     }, duration);
@@ -865,7 +911,6 @@ export const AppProvider = ({ children }) => {
     // Reviews
     fetchProductReviews,
     addReview,
-    markReviewHelpful,
     // Addresses
     addAddress,
     updateAddress,
