@@ -1,6 +1,6 @@
 // context/AppContext.js
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { cartAPI, wishlistAPI, orderAPI, productAPI } from '../services/api';
+import { cartAPI, wishlistAPI, orderAPI, productAPI, authAPI } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
@@ -442,7 +442,7 @@ const appReducer = (state, action) => {
         }
       };
     
-    // Address actions
+    // Address actions - CORRECTED
     case 'SET_ADDRESSES':
       return {
         ...state,
@@ -454,11 +454,16 @@ const appReducer = (state, action) => {
       };
     
     case 'ADD_ADDRESS':
+      // Handle both response formats: single address or addresses array
+      const newAddressList = action.payload.addresses 
+        ? action.payload.addresses 
+        : [...state.addresses.list, action.payload];
+      
       return {
         ...state,
         addresses: {
           ...state.addresses,
-          list: [...state.addresses.list, action.payload]
+          list: newAddressList
         }
       };
     
@@ -584,8 +589,15 @@ export const AppProvider = ({ children }) => {
       const ordersResponse = await orderAPI.getOrders();
       dispatch({ type: 'SET_ORDERS', payload: ordersResponse.data.orders || [] });
       
-      // Load addresses (from user profile)
-      dispatch({ type: 'SET_ADDRESSES', payload: user.address || [] });
+      // Load addresses - CORRECTED: Use authAPI to get addresses
+      try {
+        const addressesResponse = await authAPI.getAddresses();
+        dispatch({ type: 'SET_ADDRESSES', payload: addressesResponse.data.addresses || [] });
+      } catch (error) {
+        console.warn('Error loading addresses:', error);
+        // If addresses endpoint doesn't exist, use user.address from AuthContext
+        dispatch({ type: 'SET_ADDRESSES', payload: user.address || [] });
+      }
       
     } catch (error) {
       console.error('Error loading user data:', error);
@@ -824,11 +836,12 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  // Address actions
+  // Address actions - CORRECTED
   const addAddress = async (addressData) => {
     try {
       const response = await authAPI.addAddress(addressData);
-      dispatch({ type: 'ADD_ADDRESS', payload: response.data.address });
+      // Backend returns { success: true, message: '...', addresses: [...] }
+      dispatch({ type: 'ADD_ADDRESS', payload: response.data });
       return response.data;
     } catch (error) {
       throw error;
@@ -838,7 +851,12 @@ export const AppProvider = ({ children }) => {
   const updateAddress = async (addressId, addressData) => {
     try {
       const response = await authAPI.updateAddress(addressId, addressData);
-      dispatch({ type: 'UPDATE_ADDRESS', payload: response.data.address });
+      // Backend returns { success: true, message: '...', addresses: [...] }
+      // Find the updated address from the addresses array
+      const updatedAddress = response.data.addresses?.find(addr => addr._id === addressId);
+      if (updatedAddress) {
+        dispatch({ type: 'UPDATE_ADDRESS', payload: updatedAddress });
+      }
       return response.data;
     } catch (error) {
       throw error;
@@ -847,8 +865,9 @@ export const AppProvider = ({ children }) => {
 
   const deleteAddress = async (addressId) => {
     try {
-      await authAPI.deleteAddress(addressId);
+      const response = await authAPI.deleteAddress(addressId);
       dispatch({ type: 'DELETE_ADDRESS', payload: addressId });
+      return response.data;
     } catch (error) {
       throw error;
     }
