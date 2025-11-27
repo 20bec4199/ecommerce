@@ -5,7 +5,9 @@ const Payment = require('../models/Payment');
 const catchAsyncError = require('../middleware/catchAsyncError');
 const ErrorHandler = require('../middleware/errorHandler');
 
-// Create new order
+// Create new order (without processing payment)
+
+// server/controllers/orderController.js - Update createOrder function
 exports.createOrder = catchAsyncError(async (req, res, next) => {
   const {
     shippingAddress,
@@ -14,11 +16,20 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
     notes
   } = req.body;
 
-  // Get user's cart
-  const cart = await Cart.findOne({ user: req.user.userId })
-    .populate('items.product', 'name price inventory seller');
+  // Get user ID from authenticated request
+  const userId = req.user.userId;
+
+  console.log('Creating order for user:', userId);
+  console.log('Request body:', req.body);
+
+  // Get user's cart with proper population
+  const cart = await Cart.findOne({ user: userId })
+    .populate('items.product', 'name price inventory seller images');
   
-  if (!cart || cart.items.length === 0) {
+  console.log('Cart found:', cart);
+  console.log('Cart items:', cart?.items);
+
+  if (!cart || !cart.items || cart.items.length === 0) {
     return next(new ErrorHandler('Cart is empty', 400));
   }
 
@@ -29,6 +40,10 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
   for (const cartItem of cart.items) {
     const product = cartItem.product;
     
+    if (!product) {
+      return next(new ErrorHandler(`Product not found for cart item`, 400));
+    }
+
     // Check stock availability
     if (product.inventory.trackQuantity && 
         product.inventory.quantity < cartItem.quantity && 
@@ -47,29 +62,21 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
       price: cartItem.price,
       total: itemTotal
     });
-
-    // Update product inventory
-    if (product.inventory.trackQuantity) {
-      product.inventory.quantity -= cartItem.quantity;
-      if (product.inventory.quantity <= 0 && !product.inventory.allowBackorder) {
-        product.status = 'out_of_stock';
-      }
-      await product.save();
-    }
   }
 
   // Calculate totals (using cart summary or recalculating)
-  const shipping = cart.summary.shipping;
-  const tax = cart.summary.tax;
-  const discount = cart.summary.discount;
-  const total = cart.summary.total;
+  const shipping = cart.summary?.shipping || 0;
+  const tax = cart.summary?.tax || 0;
+  const discount = cart.summary?.discount || 0;
+  const total = cart.summary?.total || (subtotal + shipping + tax - discount);
 
   // Generate order ID
   const orderId = `ORD${Date.now()}${Math.random().toString(36).substr(2, 5)}`.toUpperCase();
 
+  // Create order with user ID
   const order = new Order({
     orderId,
-    user: req.user.userId,
+    user: userId, // Make sure this is included
     items: orderItems,
     shippingAddress,
     billingAddress: billingAddress || shippingAddress,
@@ -87,10 +94,23 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
     notes
   });
 
-  await order.save();
+  console.log('Order data before save:', {
+    orderId,
+    user: userId,
+    itemsCount: orderItems.length,
+    total
+  });
 
-  // Clear cart after successful order creation
-  await Cart.findOneAndDelete({ user: req.user.userId });
+  try {
+    await order.save();
+    console.log('Order saved successfully:', order._id);
+  } catch (saveError) {
+    console.error('Error saving order:', saveError);
+    return next(new ErrorHandler('Failed to save order: ' + saveError.message, 500));
+  }
+
+  // IMPORTANT: Don't clear cart yet - wait for successful payment
+  // The cart will be cleared in the payment verification step
 
   // Populate order data for response
   await order.populate('items.product', 'name images');
@@ -99,6 +119,68 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
   res.status(201).json({
     success: true,
     message: 'Order created successfully',
+    order
+  });
+});
+
+// Process successful payment and update order
+exports.confirmOrderPayment = catchAsyncError(async (req, res, next) => {
+  const { orderId, paymentId, paymentMethod } = req.body;
+
+  const order = await Order.findOne({ orderId, user: req.user.id });
+  if (!order) {
+    return next(new ErrorHandler('Order not found', 404));
+  }
+
+  // Update inventory only after successful payment
+  for (const item of order.items) {
+    const product = await Product.findById(item.product);
+    if (product && product.inventory.trackQuantity) {
+      product.inventory.quantity -= item.quantity;
+      if (product.inventory.quantity <= 0 && !product.inventory.allowBackorder) {
+        product.status = 'out_of_stock';
+      }
+      await product.save();
+    }
+  }
+
+  // Update order status based on payment method
+  order.status = paymentMethod === 'cod' ? 'confirmed' : 'confirmed';
+  order.payment.status = 'completed';
+  order.payment.paymentDate = new Date();
+  
+  if (paymentId) {
+    order.payment.transactionId = paymentId;
+  }
+
+  await order.save();
+
+  // Clear user's cart after successful payment
+  await Cart.findOneAndDelete({ user: req.user.id });
+
+  res.status(200).json({
+    success: true,
+    message: 'Order confirmed successfully',
+    order
+  });
+});
+
+// Process failed payment and update order
+exports.failOrderPayment = catchAsyncError(async (req, res, next) => {
+  const { orderId } = req.body;
+
+  const order = await Order.findOne({ orderId, user: req.user.id });
+  if (!order) {
+    return next(new ErrorHandler('Order not found', 404));
+  }
+
+  order.status = 'cancelled';
+  order.payment.status = 'failed';
+  await order.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Order payment failed',
     order
   });
 });
@@ -114,7 +196,7 @@ exports.getOrders = catchAsyncError(async (req, res, next) => {
   } = req.query;
 
   const skip = (page - 1) * limit;
-  const filter = { user: req.user.userId };
+  const filter = { user: req.user.id };
   if (status) filter.status = status;
 
   const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
@@ -148,7 +230,7 @@ exports.getOrder = catchAsyncError(async (req, res, next) => {
 
   const order = await Order.findOne({
     _id: id,
-    user: req.user.userId
+    user: req.user.id
   })
     .populate('items.product', 'name images category')
     .populate('items.seller', 'name sellerProfile.storeName');
@@ -170,7 +252,7 @@ exports.cancelOrder = catchAsyncError(async (req, res, next) => {
 
   const order = await Order.findOne({
     _id: id,
-    user: req.user.userId
+    user: req.user.id
   });
 
   if (!order) {
@@ -182,19 +264,22 @@ exports.cancelOrder = catchAsyncError(async (req, res, next) => {
     return next(new ErrorHandler('Order cannot be cancelled at this stage', 400));
   }
 
-  // Restore product inventory
-  for (const item of order.items) {
-    const product = await Product.findById(item.product);
-    if (product && product.inventory.trackQuantity) {
-      product.inventory.quantity += item.quantity;
-      if (product.status === 'out_of_stock') {
-        product.status = 'active';
+  // Restore product inventory if payment was completed
+  if (order.payment.status === 'completed') {
+    for (const item of order.items) {
+      const product = await Product.findById(item.product);
+      if (product && product.inventory.trackQuantity) {
+        product.inventory.quantity += item.quantity;
+        if (product.status === 'out_of_stock') {
+          product.status = 'active';
+        }
+        await product.save();
       }
-      await product.save();
     }
   }
 
   order.status = 'cancelled';
+  order.payment.status = 'refunded'; // Update payment status as well
   order.notes = reason ? `Cancelled: ${reason}` : 'Order cancelled by user';
   await order.save();
 
@@ -218,7 +303,7 @@ exports.updateOrderStatus = catchAsyncError(async (req, res, next) => {
   // Check if user is seller of any item in order or admin
   if (req.user.role !== 'admin') {
     const isSeller = order.items.some(item => 
-      item.seller.toString() === req.user.userId
+      item.seller.toString() === req.user.id
     );
     if (!isSeller) {
       return next(new ErrorHandler('Not authorized to update this order', 403));
@@ -238,7 +323,7 @@ exports.updateOrderStatus = catchAsyncError(async (req, res, next) => {
       carrier,
       trackingNumber,
       trackingUrl: generateTrackingUrl(carrier, trackingNumber),
-      shippedAt: status === 'shipped' ? new Date() : order.tracking.shippedAt
+      shippedAt: status === 'shipped' ? new Date() : order.tracking?.shippedAt
     };
   }
 
@@ -287,7 +372,7 @@ exports.getSellerOrders = catchAsyncError(async (req, res, next) => {
 
   // Find orders where at least one item belongs to the seller
   const orders = await Order.find({
-    'items.seller': req.user.userId
+    'items.seller': req.user.id
   })
     .populate('user', 'name email')
     .populate('items.product', 'name images')
@@ -298,11 +383,11 @@ exports.getSellerOrders = catchAsyncError(async (req, res, next) => {
   // Filter items to only show seller's items
   const filteredOrders = orders.map(order => ({
     ...order.toObject(),
-    items: order.items.filter(item => item.seller.toString() === req.user.userId)
+    items: order.items.filter(item => item.seller.toString() === req.user.id)
   }));
 
   const totalOrders = await Order.countDocuments({
-    'items.seller': req.user.userId
+    'items.seller': req.user.id
   });
   const totalPages = Math.ceil(totalOrders / limit);
 
@@ -325,7 +410,10 @@ const generateTrackingUrl = (carrier, trackingNumber) => {
     'fedex': `https://www.fedex.com/fedextrack/?trknbr=${trackingNumber}`,
     'ups': `https://www.ups.com/track?tracknum=${trackingNumber}`,
     'usps': `https://tools.usps.com/go/TrackConfirmAction?tLabels=${trackingNumber}`,
-    'dhl': `https://www.dhl.com/en/express/tracking.html?AWB=${trackingNumber}`
+    'dhl': `https://www.dhl.com/en/express/tracking.html?AWB=${trackingNumber}`,
+    'india-post': `https://www.indiapost.gov.in/_layouts/15/DOP.Portal.Tracking/TrackConsignment.aspx?=${trackingNumber}`,
+    'delhivery': `https://www.delhivery.com/track/${trackingNumber}`,
+    'bluedart': `https://www.bluedart.com/tracking.html?tracking_no=${trackingNumber}`
   };
   
   return carriers[carrier.toLowerCase()] || `https://example.com/track/${trackingNumber}`;
@@ -337,7 +425,7 @@ exports.getOrderStats = catchAsyncError(async (req, res, next) => {
   
   // For sellers, only show their orders
   if (req.user.role === 'seller') {
-    filter = { 'items.seller': req.user.userId };
+    filter = { 'items.seller': req.user.id };
   }
 
   const stats = await Order.aggregate([

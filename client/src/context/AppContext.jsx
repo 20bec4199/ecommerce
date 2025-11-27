@@ -1,6 +1,6 @@
 // context/AppContext.js
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
-import { cartAPI, wishlistAPI, orderAPI, productAPI, authAPI } from '../services/api';
+import { cartAPI, wishlistAPI, orderAPI, productAPI, authAPI, paymentAPI } from '../services/api';
 import { useAuth } from './AuthContext';
 
 const AppContext = createContext();
@@ -24,14 +24,14 @@ const initialState = {
     loading: false,
     error: null
   },
-  
+
   // Wishlist management
   wishlist: {
     items: [],
     loading: false,
     error: null
   },
-  
+
   // Products with filters
   products: {
     items: [],
@@ -53,7 +53,7 @@ const initialState = {
       totalProducts: 0
     }
   },
-  
+
   // Categories
   categories: {
     list: [],
@@ -62,15 +62,35 @@ const initialState = {
     loading: false,
     error: null
   },
-  
+
   // Orders
   orders: {
     list: [],
     currentOrder: null,
     loading: false,
-    error: null
+    error: null,
+    filters: {
+      status: '',
+      dateRange: {},
+      sortBy: 'createdAt',
+      sortOrder: 'desc'
+    }
   },
-  
+
+  // Payments
+  payments: {
+    list: [],
+    currentPayment: null,
+    loading: false,
+    error: null,
+    filters: {
+      status: '',
+      paymentMethod: '',
+      startDate: '',
+      endDate: ''
+    }
+  },
+
   // Reviews
   reviews: {
     list: [],
@@ -79,7 +99,7 @@ const initialState = {
     loading: false,
     error: null
   },
-  
+
   // UI state
   ui: {
     sidebarOpen: false,
@@ -90,11 +110,29 @@ const initialState = {
     },
     notifications: []
   },
-  
+
   // Address management
   addresses: {
     list: [],
     selectedAddress: null,
+    loading: false,
+    error: null
+  },
+
+  // User profile management
+  userProfile: {
+    profile: null,
+    loading: false,
+    error: null
+  },
+
+  // Checkout state
+  checkout: {
+    step: 'cart', // cart → shipping → payment → review → confirmation
+    shippingAddress: null,
+    billingAddress: null,
+    paymentMethod: null,
+    orderSummary: null,
     loading: false,
     error: null
   }
@@ -103,25 +141,23 @@ const initialState = {
 // Reducer function with optimistic updates
 const appReducer = (state, action) => {
   switch (action.type) {
-    
     // Cart actions
     case 'CART_LOADING':
       return { ...state, cart: { ...state.cart, loading: true, error: null } };
-    
+
     case 'SET_CART':
-      return { 
-        ...state, 
-        cart: { 
+      return {
+        ...state,
+        cart: {
           ...action.payload,
           loading: false,
           error: null
-        } 
+        }
       };
-    
-    // Optimistic update cases
+
     case 'ADD_TO_CART_OPTIMISTIC':
       const newItem = action.payload;
-      const existingItemIndex = state.cart.items.findIndex(item => 
+      const existingItemIndex = state.cart.items.findIndex(item =>
         item.product._id === newItem.product._id &&
         isVariantEqual(item.variant, newItem.variant)
       );
@@ -152,7 +188,7 @@ const appReducer = (state, action) => {
       const itemsAfterAdd = state.cart.items.map(item =>
         item._id === tempId ? { ...realItem, _id: realItem._id } : item
       );
-      
+
       return {
         ...state,
         cart: {
@@ -166,7 +202,7 @@ const appReducer = (state, action) => {
       const filteredItemsOptimistic = state.cart.items.filter(
         item => item._id !== action.payload
       );
-      
+
       return {
         ...state,
         cart: {
@@ -181,7 +217,7 @@ const appReducer = (state, action) => {
           ? { ...item, quantity: action.payload.quantity }
           : item
       );
-      
+
       return {
         ...state,
         cart: {
@@ -194,7 +230,7 @@ const appReducer = (state, action) => {
       const itemsAfterRemove = state.cart.items.filter(
         item => item._id !== action.payload
       );
-      
+
       return {
         ...state,
         cart: {
@@ -202,14 +238,14 @@ const appReducer = (state, action) => {
           items: itemsAfterRemove
         }
       };
-    
+
     case 'UPDATE_CART_ITEM':
       const updatedItems = state.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, ...action.payload.updates }
           : item
       );
-      
+
       return {
         ...state,
         cart: {
@@ -217,12 +253,12 @@ const appReducer = (state, action) => {
           items: updatedItems
         }
       };
-    
+
     case 'REMOVE_FROM_CART':
       const filteredItems = state.cart.items.filter(
         item => item._id !== action.payload
       );
-      
+
       return {
         ...state,
         cart: {
@@ -230,14 +266,14 @@ const appReducer = (state, action) => {
           items: filteredItems
         }
       };
-    
+
     case 'UPDATE_CART_QUANTITY':
       const quantityUpdatedItems = state.cart.items.map(item =>
         item._id === action.payload.itemId
           ? { ...item, quantity: action.payload.quantity }
           : item
       );
-      
+
       return {
         ...state,
         cart: {
@@ -245,7 +281,7 @@ const appReducer = (state, action) => {
           items: quantityUpdatedItems
         }
       };
-    
+
     case 'APPLY_COUPON':
       return {
         ...state,
@@ -254,7 +290,7 @@ const appReducer = (state, action) => {
           coupon: action.payload
         }
       };
-    
+
     case 'REMOVE_COUPON':
       return {
         ...state,
@@ -263,7 +299,7 @@ const appReducer = (state, action) => {
           coupon: null
         }
       };
-    
+
     case 'CLEAR_CART':
       return {
         ...state,
@@ -271,21 +307,21 @@ const appReducer = (state, action) => {
           ...initialState.cart
         }
       };
-    
+
     case 'CART_ERROR':
       return { ...state, cart: { ...state.cart, loading: false, error: action.payload } };
-    
+
     // Wishlist actions
     case 'SET_WISHLIST':
-      return { 
-        ...state, 
-        wishlist: { 
+      return {
+        ...state,
+        wishlist: {
           items: action.payload,
           loading: false,
           error: null
-        } 
+        }
       };
-    
+
     case 'ADD_TO_WISHLIST':
       return {
         ...state,
@@ -294,7 +330,7 @@ const appReducer = (state, action) => {
           items: [...state.wishlist.items, action.payload]
         }
       };
-    
+
     case 'REMOVE_FROM_WISHLIST':
       return {
         ...state,
@@ -303,14 +339,14 @@ const appReducer = (state, action) => {
           items: state.wishlist.items.filter(item => item._id !== action.payload)
         }
       };
-    
+
     // Product actions
     case 'PRODUCTS_LOADING':
-      return { 
-        ...state, 
-        products: { ...state.products, loading: true, error: null } 
+      return {
+        ...state,
+        products: { ...state.products, loading: true, error: null }
       };
-    
+
     case 'SET_PRODUCTS':
       return {
         ...state,
@@ -321,7 +357,7 @@ const appReducer = (state, action) => {
           loading: false
         }
       };
-    
+
     case 'UPDATE_PRODUCT_FILTERS':
       return {
         ...state,
@@ -331,7 +367,7 @@ const appReducer = (state, action) => {
           pagination: { ...state.products.pagination, currentPage: 1 }
         }
       };
-    
+
     case 'RESET_PRODUCT_FILTERS':
       return {
         ...state,
@@ -341,7 +377,7 @@ const appReducer = (state, action) => {
           pagination: { ...state.products.pagination, currentPage: 1 }
         }
       };
-    
+
     // Category actions
     case 'SET_CATEGORIES':
       return {
@@ -353,7 +389,7 @@ const appReducer = (state, action) => {
           loading: false
         }
       };
-    
+
     case 'SELECT_CATEGORY':
       return {
         ...state,
@@ -362,18 +398,25 @@ const appReducer = (state, action) => {
           selectedCategory: action.payload
         }
       };
-    
+
     // Order actions
+    case 'ORDERS_LOADING':
+      return {
+        ...state,
+        orders: { ...state.orders, loading: true, error: null }
+      };
+
     case 'SET_ORDERS':
       return {
         ...state,
         orders: {
           ...state.orders,
-          list: action.payload,
-          loading: false
+          list: action.payload.orders || action.payload,
+          loading: false,
+          error: null
         }
       };
-    
+
     case 'SET_CURRENT_ORDER':
       return {
         ...state,
@@ -382,7 +425,7 @@ const appReducer = (state, action) => {
           currentOrder: action.payload
         }
       };
-    
+
     case 'ADD_ORDER':
       return {
         ...state,
@@ -392,24 +435,189 @@ const appReducer = (state, action) => {
         },
         cart: {
           ...initialState.cart
+        },
+        checkout: {
+          ...initialState.checkout
         }
       };
-    
+
     case 'UPDATE_ORDER_STATUS':
       const updatedOrders = state.orders.list.map(order =>
         order._id === action.payload.orderId
           ? { ...order, status: action.payload.status }
           : order
       );
-      
+
+      const updatedCurrentOrder = state.orders.currentOrder?._id === action.payload.orderId
+        ? { ...state.orders.currentOrder, status: action.payload.status }
+        : state.orders.currentOrder;
+
       return {
         ...state,
         orders: {
           ...state.orders,
-          list: updatedOrders
+          list: updatedOrders,
+          currentOrder: updatedCurrentOrder
         }
       };
-    
+
+    case 'UPDATE_ORDER_FILTERS':
+      return {
+        ...state,
+        orders: {
+          ...state.orders,
+          filters: { ...state.orders.filters, ...action.payload }
+        }
+      };
+
+    case 'RESET_ORDER_FILTERS':
+      return {
+        ...state,
+        orders: {
+          ...state.orders,
+          filters: initialState.orders.filters
+        }
+      };
+
+    // Payment actions
+    case 'PAYMENTS_LOADING':
+      return {
+        ...state,
+        payments: { ...state.payments, loading: true, error: null }
+      };
+
+    case 'SET_PAYMENTS':
+      return {
+        ...state,
+        payments: {
+          ...state.payments,
+          list: action.payload.payments || action.payload,
+          loading: false,
+          error: null
+        }
+      };
+
+    case 'SET_CURRENT_PAYMENT':
+      return {
+        ...state,
+        payments: {
+          ...state.payments,
+          currentPayment: action.payload
+        }
+      };
+
+    case 'ADD_PAYMENT':
+      return {
+        ...state,
+        payments: {
+          ...state.payments,
+          list: [action.payload, ...state.payments.list]
+        }
+      };
+
+    case 'UPDATE_PAYMENT_STATUS':
+      const updatedPayments = state.payments.list.map(payment =>
+        payment._id === action.payload.paymentId
+          ? { ...payment, status: action.payload.status }
+          : payment
+      );
+
+      const updatedCurrentPayment = state.payments.currentPayment?._id === action.payload.paymentId
+        ? { ...state.payments.currentPayment, status: action.payload.status }
+        : state.payments.currentPayment;
+
+      return {
+        ...state,
+        payments: {
+          ...state.payments,
+          list: updatedPayments,
+          currentPayment: updatedCurrentPayment
+        }
+      };
+
+    case 'UPDATE_PAYMENT_FILTERS':
+      return {
+        ...state,
+        payments: {
+          ...state.payments,
+          filters: { ...state.payments.filters, ...action.payload }
+        }
+      };
+
+    // Checkout actions
+    case 'SET_CHECKOUT_STEP':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          step: action.payload
+        }
+      };
+
+    case 'SET_SHIPPING_ADDRESS':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          shippingAddress: action.payload
+        }
+      };
+
+    case 'SET_BILLING_ADDRESS':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          billingAddress: action.payload
+        }
+      };
+
+    case 'SET_PAYMENT_METHOD':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          paymentMethod: action.payload
+        }
+      };
+
+    case 'SET_ORDER_SUMMARY':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          orderSummary: action.payload
+        }
+      };
+
+    case 'CHECKOUT_LOADING':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          loading: action.payload,
+          error: action.payload ? null : state.checkout.error
+        }
+      };
+
+    case 'CHECKOUT_ERROR':
+      return {
+        ...state,
+        checkout: {
+          ...state.checkout,
+          loading: false,
+          error: action.payload
+        }
+      };
+
+    case 'RESET_CHECKOUT':
+      return {
+        ...state,
+        checkout: {
+          ...initialState.checkout
+        }
+      };
+
     // Review actions
     case 'SET_PRODUCT_REVIEWS':
       return {
@@ -426,11 +634,11 @@ const appReducer = (state, action) => {
           }
         }
       };
-    
+
     case 'ADD_REVIEW':
       const productId = action.payload.product;
       const currentReviews = state.reviews.productReviews[productId] || [];
-      
+
       return {
         ...state,
         reviews: {
@@ -441,8 +649,8 @@ const appReducer = (state, action) => {
           }
         }
       };
-    
-    // Address actions - CORRECTED
+
+    // Address actions
     case 'SET_ADDRESSES':
       return {
         ...state,
@@ -452,13 +660,12 @@ const appReducer = (state, action) => {
           loading: false
         }
       };
-    
+
     case 'ADD_ADDRESS':
-      // Handle both response formats: single address or addresses array
-      const newAddressList = action.payload.addresses 
-        ? action.payload.addresses 
+      const newAddressList = action.payload.addresses
+        ? action.payload.addresses
         : [...state.addresses.list, action.payload];
-      
+
       return {
         ...state,
         addresses: {
@@ -466,12 +673,12 @@ const appReducer = (state, action) => {
           list: newAddressList
         }
       };
-    
+
     case 'UPDATE_ADDRESS':
       const updatedAddresses = state.addresses.list.map(address =>
         address._id === action.payload._id ? action.payload : address
       );
-      
+
       return {
         ...state,
         addresses: {
@@ -479,7 +686,7 @@ const appReducer = (state, action) => {
           list: updatedAddresses
         }
       };
-    
+
     case 'DELETE_ADDRESS':
       return {
         ...state,
@@ -488,7 +695,7 @@ const appReducer = (state, action) => {
           list: state.addresses.list.filter(address => address._id !== action.payload)
         }
       };
-    
+
     case 'SELECT_ADDRESS':
       return {
         ...state,
@@ -497,33 +704,84 @@ const appReducer = (state, action) => {
           selectedAddress: action.payload
         }
       };
-    
+
+    // User Profile actions
+    case 'PROFILE_LOADING':
+      return {
+        ...state,
+        userProfile: {
+          ...state.userProfile,
+          loading: true,
+          error: null
+        }
+      };
+
+    case 'SET_PROFILE':
+      return {
+        ...state,
+        userProfile: {
+          profile: action.payload,
+          loading: false,
+          error: null
+        }
+      };
+
+    case 'UPDATE_PROFILE_SUCCESS':
+      return {
+        ...state,
+        userProfile: {
+          profile: { ...state.userProfile.profile, ...action.payload },
+          loading: false,
+          error: null
+        }
+      };
+
+    case 'PROFILE_ERROR':
+      return {
+        ...state,
+        userProfile: {
+          ...state.userProfile,
+          loading: false,
+          error: action.payload
+        }
+      };
+
+    case 'UPDATE_PASSWORD_SUCCESS':
+      return {
+        ...state,
+        userProfile: {
+          ...state.userProfile,
+          loading: false,
+          error: null
+        }
+      };
+
     // UI actions
     case 'TOGGLE_SIDEBAR':
       return {
         ...state,
         ui: { ...state.ui, sidebarOpen: !state.ui.sidebarOpen }
       };
-    
+
     case 'OPEN_MODAL':
       return {
         ...state,
-        ui: { 
-          ...state.ui, 
-          modal: { 
-            isOpen: true, 
-            type: action.payload.type, 
-            data: action.payload.data 
-          } 
+        ui: {
+          ...state.ui,
+          modal: {
+            isOpen: true,
+            type: action.payload.type,
+            data: action.payload.data
+          }
         }
       };
-    
+
     case 'CLOSE_MODAL':
       return {
         ...state,
         ui: { ...state.ui, modal: { isOpen: false, type: '', data: null } }
       };
-    
+
     case 'ADD_NOTIFICATION':
       return {
         ...state,
@@ -532,7 +790,7 @@ const appReducer = (state, action) => {
           notifications: [...state.ui.notifications, action.payload]
         }
       };
-    
+
     case 'REMOVE_NOTIFICATION':
       return {
         ...state,
@@ -543,7 +801,7 @@ const appReducer = (state, action) => {
           )
         }
       };
-    
+
     default:
       return state;
   }
@@ -553,7 +811,7 @@ const appReducer = (state, action) => {
 const isVariantEqual = (variant1, variant2) => {
   if (!variant1 && !variant2) return true;
   if (!variant1 || !variant2) return false;
-  
+
   return variant1.name === variant2.name && variant1.value === variant2.value;
 };
 
@@ -570,38 +828,50 @@ export const AppProvider = ({ children }) => {
       dispatch({ type: 'SET_CART', payload: initialState.cart });
       dispatch({ type: 'SET_WISHLIST', payload: [] });
       dispatch({ type: 'SET_ORDERS', payload: [] });
+      dispatch({ type: 'SET_PAYMENTS', payload: [] });
       dispatch({ type: 'SET_ADDRESSES', payload: [] });
+      dispatch({ type: 'RESET_CHECKOUT' });
     }
   }, [user]);
 
   const loadUserData = async () => {
     try {
-      // Load cart
-      dispatch({ type: 'CART_LOADING' });
-      const cartResponse = await cartAPI.getCart();
-      dispatch({ type: 'SET_CART', payload: cartResponse.data.cart });
+      // Load user profile first
+      await fetchUserProfile();
       
-      // Load wishlist
-      const wishlistResponse = await wishlistAPI.getWishlist();
-      dispatch({ type: 'SET_WISHLIST', payload: wishlistResponse.data.wishlist || [] });
-      
-      // Load orders
-      const ordersResponse = await orderAPI.getOrders();
-      dispatch({ type: 'SET_ORDERS', payload: ordersResponse.data.orders || [] });
-      
-      // Load addresses - CORRECTED: Use authAPI to get addresses
+      // Load addresses before other data
       try {
         const addressesResponse = await authAPI.getAddresses();
         dispatch({ type: 'SET_ADDRESSES', payload: addressesResponse.data.addresses || [] });
       } catch (error) {
         console.warn('Error loading addresses:', error);
-        // If addresses endpoint doesn't exist, use user.address from AuthContext
-        dispatch({ type: 'SET_ADDRESSES', payload: user.address || [] });
+        dispatch({ type: 'SET_ADDRESSES', payload: [] });
       }
+      
+      // Load other user data in parallel
+      await Promise.all([
+        cartAPI.getCart().then(response => 
+          dispatch({ type: 'SET_CART', payload: response.data.cart })
+        ).catch(error => {
+          console.warn('Error loading cart:', error);
+          dispatch({ type: 'CART_ERROR', payload: error.message });
+        }),
+        
+        wishlistAPI.getWishlist().then(response =>
+          dispatch({ type: 'SET_WISHLIST', payload: response.data.wishlist || [] })
+        ).catch(error => console.warn('Error loading wishlist:', error)),
+        
+        orderAPI.getOrders().then(response =>
+          dispatch({ type: 'SET_ORDERS', payload: response.data.orders || [] })
+        ).catch(error => console.warn('Error loading orders:', error)),
+        
+        paymentAPI.getUserPayments().then(response =>
+          dispatch({ type: 'SET_PAYMENTS', payload: response.data.payments || [] })
+        ).catch(error => console.warn('Error loading payments:', error))
+      ]);
       
     } catch (error) {
       console.error('Error loading user data:', error);
-      dispatch({ type: 'CART_ERROR', payload: error.message });
     }
   };
 
@@ -625,18 +895,20 @@ export const AppProvider = ({ children }) => {
         variant: variant || undefined,
         seller: product.seller
       };
-      
+
       dispatch({ type: 'ADD_TO_CART_OPTIMISTIC', payload: optimisticItem });
 
       const response = await cartAPI.addToCart(cartItem);
-      
+
       // Replace optimistic item with real data
-      dispatch({ type: 'UPDATE_CART_AFTER_ADD', payload: {
-        tempId: optimisticItem._id,
-        realItem: response.data.item,
-        cart: response.data.cart
-      }});
-      
+      dispatch({
+        type: 'UPDATE_CART_AFTER_ADD', payload: {
+          tempId: optimisticItem._id,
+          realItem: response.data.item,
+          cart: response.data.cart
+        }
+      });
+
       return response.data;
     } catch (error) {
       // Rollback on error
@@ -650,9 +922,9 @@ export const AppProvider = ({ children }) => {
     try {
       // Optimistically remove from UI
       dispatch({ type: 'REMOVE_FROM_CART_OPTIMISTIC', payload: itemId });
-      
+
       await cartAPI.removeFromCart(itemId);
-      
+
       // No need to reload cart - we already updated optimistically
     } catch (error) {
       // Rollback on error - reload actual cart state
@@ -667,9 +939,9 @@ export const AppProvider = ({ children }) => {
     try {
       // Optimistically update quantity in UI
       dispatch({ type: 'UPDATE_CART_QUANTITY_OPTIMISTIC', payload: { itemId, quantity } });
-      
+
       await cartAPI.updateQuantity(itemId, quantity);
-      
+
       // No need to reload cart - we already updated optimistically
     } catch (error) {
       // Rollback on error - reload actual cart state
@@ -732,8 +1004,8 @@ export const AppProvider = ({ children }) => {
     try {
       dispatch({ type: 'PRODUCTS_LOADING' });
       const response = await productAPI.getProducts(filters);
-      dispatch({ 
-        type: 'SET_PRODUCTS', 
+      dispatch({
+        type: 'SET_PRODUCTS',
         payload: {
           products: response.data.products,
           pagination: response.data.pagination
@@ -757,8 +1029,8 @@ export const AppProvider = ({ children }) => {
   const fetchCategories = async () => {
     try {
       const response = await productAPI.getCategories();
-      dispatch({ 
-        type: 'SET_CATEGORIES', 
+      dispatch({
+        type: 'SET_CATEGORIES',
         payload: {
           list: response.data.categories,
           tree: response.data.tree
@@ -775,10 +1047,40 @@ export const AppProvider = ({ children }) => {
   };
 
   // Order actions
-  const createOrder = async (orderData) => {
+ 
+const createOrder = async (orderData) => {
+  try {
+    dispatch({ type: 'CHECKOUT_LOADING', payload: true });
+    const response = await orderAPI.createOrder(orderData);
+    
+    // Only add order to state, don't clear cart yet
+    dispatch({ type: 'ADD_ORDER', payload: response.data.order });
+    
+    // Show success notification
+    dispatch({
+      type: 'ADD_NOTIFICATION',
+      payload: {
+        id: Date.now(),
+        message: 'Order created successfully!',
+        type: 'success',
+        duration: 5000
+      }
+    });
+    
+    return response.data;
+  } catch (error) {
+    dispatch({ type: 'CHECKOUT_ERROR', payload: error.message });
+    throw error;
+  } finally {
+    dispatch({ type: 'CHECKOUT_LOADING', payload: false });
+  }
+};
+
+  const fetchOrders = async (filters = {}) => {
     try {
-      const response = await orderAPI.createOrder(orderData);
-      dispatch({ type: 'ADD_ORDER', payload: response.data.order });
+      dispatch({ type: 'ORDERS_LOADING' });
+      const response = await orderAPI.getOrders(filters);
+      dispatch({ type: 'SET_ORDERS', payload: response.data.orders });
       return response.data;
     } catch (error) {
       throw error;
@@ -787,6 +1089,7 @@ export const AppProvider = ({ children }) => {
 
   const fetchOrder = async (orderId) => {
     try {
+      dispatch({ type: 'ORDERS_LOADING' });
       const response = await orderAPI.getOrder(orderId);
       dispatch({ type: 'SET_CURRENT_ORDER', payload: response.data.order });
       return response.data;
@@ -795,25 +1098,188 @@ export const AppProvider = ({ children }) => {
     }
   };
 
-  const cancelOrder = async (orderId) => {
+  const cancelOrder = async (orderId, reason = '') => {
     try {
-      const response = await orderAPI.cancelOrder(orderId);
-      dispatch({ 
-        type: 'UPDATE_ORDER_STATUS', 
-        payload: { orderId, status: 'cancelled' } 
+      const response = await orderAPI.cancelOrder(orderId, reason);
+      dispatch({
+        type: 'UPDATE_ORDER_STATUS',
+        payload: { orderId, status: 'cancelled' }
       });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Order cancelled successfully',
+          type: 'success',
+          duration: 5000
+        }
+      });
+      
       return response.data;
     } catch (error) {
       throw error;
     }
   };
 
+  const updateOrderFilters = (filters) => {
+    dispatch({ type: 'UPDATE_ORDER_FILTERS', payload: filters });
+  };
+
+  const resetOrderFilters = () => {
+    dispatch({ type: 'RESET_ORDER_FILTERS' });
+  };
+
+  // Payment actions
+  const createRazorpayOrder = async (orderData) => {
+    try {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: true });
+      const response = await paymentAPI.createRazorpayOrder(orderData);
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'CHECKOUT_ERROR', payload: error.message });
+      throw error;
+    } finally {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: false });
+    }
+  };
+
+  const verifyRazorpayPayment = async (verificationData) => {
+    try {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: true });
+      const response = await paymentAPI.verifyRazorpayPayment(verificationData);
+      
+      // Add payment to state
+      dispatch({ type: 'ADD_PAYMENT', payload: response.data.payment });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Payment completed successfully!',
+          type: 'success',
+          duration: 5000
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'CHECKOUT_ERROR', payload: error.message });
+      
+      // Show error notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Payment verification failed',
+          type: 'error',
+          duration: 5000
+        }
+      });
+      
+      throw error;
+    } finally {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: false });
+    }
+  };
+
+  const handleRazorpayFailure = async (failureData) => {
+    try {
+      const response = await paymentAPI.handleRazorpayFailure(failureData);
+      dispatch({ type: 'UPDATE_PAYMENT_STATUS', payload: { paymentId: failureData.paymentId, status: 'failed' } });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const createCODOrder = async (orderData) => {
+    try {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: true });
+      const response = await paymentAPI.createCODOrder(orderData);
+      
+      // Add payment to state
+      dispatch({ type: 'ADD_PAYMENT', payload: response.data.payment });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'COD order placed successfully!',
+          type: 'success',
+          duration: 5000
+        }
+      });
+      
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'CHECKOUT_ERROR', payload: error.message });
+      throw error;
+    } finally {
+      dispatch({ type: 'CHECKOUT_LOADING', payload: false });
+    }
+  };
+
+  const fetchPayments = async (filters = {}) => {
+    try {
+      dispatch({ type: 'PAYMENTS_LOADING' });
+      const response = await paymentAPI.getUserPayments(filters);
+      dispatch({ type: 'SET_PAYMENTS', payload: response.data.payments });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const fetchPaymentDetails = async (paymentId) => {
+    try {
+      dispatch({ type: 'PAYMENTS_LOADING' });
+      const response = await paymentAPI.getPaymentDetails(paymentId);
+      dispatch({ type: 'SET_CURRENT_PAYMENT', payload: response.data.payment });
+      return response.data;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const updatePaymentFilters = (filters) => {
+    dispatch({ type: 'UPDATE_PAYMENT_FILTERS', payload: filters });
+  };
+
+  // Checkout actions
+  const setCheckoutStep = (step) => {
+    dispatch({ type: 'SET_CHECKOUT_STEP', payload: step });
+  };
+
+  const setShippingAddress = (address) => {
+    dispatch({ type: 'SET_SHIPPING_ADDRESS', payload: address });
+  };
+
+  const setBillingAddress = (address) => {
+    dispatch({ type: 'SET_BILLING_ADDRESS', payload: address });
+  };
+
+  const setPaymentMethod = (method) => {
+    dispatch({ type: 'SET_PAYMENT_METHOD', payload: method });
+  };
+
+  const setOrderSummary = (summary) => {
+    dispatch({ type: 'SET_ORDER_SUMMARY', payload: summary });
+  };
+
+  const resetCheckout = () => {
+    dispatch({ type: 'RESET_CHECKOUT' });
+  };
+
   // Review actions
   const fetchProductReviews = async (productId, filters = {}) => {
     try {
       const response = await productAPI.getProductReviews(productId, filters);
-      dispatch({ 
-        type: 'SET_PRODUCT_REVIEWS', 
+      dispatch({
+        type: 'SET_PRODUCT_REVIEWS',
         payload: {
           productId,
           reviews: response.data.reviews,
@@ -830,18 +1296,41 @@ export const AppProvider = ({ children }) => {
     try {
       const response = await productAPI.addReview(reviewData);
       dispatch({ type: 'ADD_REVIEW', payload: response.data.review });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Review added successfully!',
+          type: 'success',
+          duration: 5000
+        }
+      });
+      
       return response.data;
     } catch (error) {
       throw error;
     }
   };
 
-  // Address actions - CORRECTED
+  // Address actions
   const addAddress = async (addressData) => {
     try {
       const response = await authAPI.addAddress(addressData);
-      // Backend returns { success: true, message: '...', addresses: [...] }
       dispatch({ type: 'ADD_ADDRESS', payload: response.data });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Address added successfully!',
+          type: 'success',
+          duration: 3000
+        }
+      });
+      
       return response.data;
     } catch (error) {
       throw error;
@@ -851,12 +1340,22 @@ export const AppProvider = ({ children }) => {
   const updateAddress = async (addressId, addressData) => {
     try {
       const response = await authAPI.updateAddress(addressId, addressData);
-      // Backend returns { success: true, message: '...', addresses: [...] }
-      // Find the updated address from the addresses array
       const updatedAddress = response.data.addresses?.find(addr => addr._id === addressId);
       if (updatedAddress) {
         dispatch({ type: 'UPDATE_ADDRESS', payload: updatedAddress });
       }
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Address updated successfully!',
+          type: 'success',
+          duration: 3000
+        }
+      });
+      
       return response.data;
     } catch (error) {
       throw error;
@@ -867,6 +1366,18 @@ export const AppProvider = ({ children }) => {
     try {
       const response = await authAPI.deleteAddress(addressId);
       dispatch({ type: 'DELETE_ADDRESS', payload: addressId });
+      
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Address deleted successfully!',
+          type: 'success',
+          duration: 3000
+        }
+      });
+      
       return response.data;
     } catch (error) {
       throw error;
@@ -875,6 +1386,127 @@ export const AppProvider = ({ children }) => {
 
   const selectAddress = (address) => {
     dispatch({ type: 'SELECT_ADDRESS', payload: address });
+  };
+
+  // User Profile actions
+  const fetchUserProfile = async () => {
+    try {
+      dispatch({ type: 'PROFILE_LOADING' });
+      const response = await authAPI.getProfile();
+      dispatch({ type: 'SET_PROFILE', payload: response.data.user });
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'PROFILE_ERROR', payload: error.message });
+      throw error;
+    }
+  };
+
+  const updateProfile = async (profileData) => {
+    try {
+      dispatch({ type: 'PROFILE_LOADING' });
+      const response = await authAPI.updateProfile(profileData);
+      dispatch({ type: 'UPDATE_PROFILE_SUCCESS', payload: response.data.user });
+
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Profile updated successfully',
+          type: 'success',
+          duration: 3000
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'PROFILE_ERROR', payload: error.message });
+
+      // Show error notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: error.response?.data?.message || 'Failed to update profile',
+          type: 'error',
+          duration: 5000
+        }
+      });
+
+      throw error;
+    }
+  };
+
+  const updatePassword = async (passwordData) => {
+    try {
+      dispatch({ type: 'PROFILE_LOADING' });
+      const response = await authAPI.updatePassword(passwordData);
+      dispatch({ type: 'UPDATE_PASSWORD_SUCCESS' });
+
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Password updated successfully',
+          type: 'success',
+          duration: 3000
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'PROFILE_ERROR', payload: error.message });
+
+      // Show error notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: error.response?.data?.message || 'Failed to update password',
+          type: 'error',
+          duration: 5000
+        }
+      });
+
+      throw error;
+    }
+  };
+
+  const uploadAvatar = async (formData) => {
+    try {
+      dispatch({ type: 'PROFILE_LOADING' });
+      const response = await userAPI.uploadAvatar(formData);
+      dispatch({ type: 'UPDATE_PROFILE_SUCCESS', payload: response.data.user });
+
+      // Show success notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: 'Profile picture updated successfully',
+          type: 'success',
+          duration: 3000
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      dispatch({ type: 'PROFILE_ERROR', payload: error.message });
+
+      // Show error notification
+      dispatch({
+        type: 'ADD_NOTIFICATION',
+        payload: {
+          id: Date.now(),
+          message: error.response?.data?.message || 'Failed to upload profile picture',
+          type: 'error',
+          duration: 5000
+        }
+      });
+
+      throw error;
+    }
   };
 
   // UI actions
@@ -898,7 +1530,7 @@ export const AppProvider = ({ children }) => {
       duration
     };
     dispatch({ type: 'ADD_NOTIFICATION', payload: notification });
-    
+
     setTimeout(() => {
       dispatch({ type: 'REMOVE_NOTIFICATION', payload: notification.id });
     }, duration);
@@ -925,8 +1557,26 @@ export const AppProvider = ({ children }) => {
     selectCategory,
     // Orders
     createOrder,
+    fetchOrders,
     fetchOrder,
     cancelOrder,
+    updateOrderFilters,
+    resetOrderFilters,
+    // Payments
+    createRazorpayOrder,
+    verifyRazorpayPayment,
+    handleRazorpayFailure,
+    createCODOrder,
+    fetchPayments,
+    fetchPaymentDetails,
+    updatePaymentFilters,
+    // Checkout
+    setCheckoutStep,
+    setShippingAddress,
+    setBillingAddress,
+    setPaymentMethod,
+    setOrderSummary,
+    resetCheckout,
     // Reviews
     fetchProductReviews,
     addReview,
@@ -935,6 +1585,11 @@ export const AppProvider = ({ children }) => {
     updateAddress,
     deleteAddress,
     selectAddress,
+    // User Profile
+    fetchUserProfile,
+    updateProfile,
+    updatePassword,
+    uploadAvatar,
     // UI
     toggleSidebar,
     openModal,

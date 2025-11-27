@@ -90,7 +90,10 @@ const paymentSchema = new mongoose.Schema({
   metadata: {
     ipAddress: String,
     userAgent: String,
-    device: String
+    device: {
+      type: String,
+      default: 'web'
+    }
   },
   notes: String,
   completedAt: Date,
@@ -101,6 +104,7 @@ const paymentSchema = new mongoose.Schema({
 
 // Pre-save middleware to generate payment ID
 paymentSchema.pre('save', function(next) {
+  // Only generate paymentId if it doesn't exist
   if (!this.paymentId) {
     this.paymentId = `PAY${Date.now()}${Math.random().toString(36).substr(2, 9)}`;
   }

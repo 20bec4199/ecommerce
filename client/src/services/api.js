@@ -7,42 +7,6 @@ const API = axios.create({
   timeout: 10000, // Add timeout
 });
 
-// Request cache to prevent duplicates
-// const requestCache = new Map();
-
-// API.interceptors.request.use(
-//   (config) => {
-//     const token = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
-//     if (token) {
-//       config.headers.Authorization = `Bearer ${token}`;
-//     }
-    
-//     // Create request signature to identify duplicates
-//     const requestSignature = `${config.method}-${config.url}-${JSON.stringify(config.data || config.params)}`;
-    
-//     // // If same request is already in progress, cancel this one
-//     // if (requestCache.has(requestSignature)) {
-//     //   const source = requestCache.get(requestSignature);
-//     //   source.cancel('Duplicate request cancelled');
-//     // }
-    
-//     // Create cancel token for this request
-//     // const source = axios.CancelToken.source();
-//     // config.cancelToken = source.token;
-//     // requestCache.set(requestSignature, source);
-    
-//     // Remove from cache after request completes (handled in response interceptor)
-//     setTimeout(() => {
-//       requestCache.delete(requestSignature);
-//     }, 1000);
-    
-//     return config;
-//   },
-//   (error) => {
-//     return Promise.reject(error);
-//   }
-// );
-
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken');
@@ -53,7 +17,6 @@ API.interceptors.request.use(
   },
   (error) => Promise.reject(error)
 );
-
 
 API.interceptors.response.use(
   (response) => {
@@ -89,6 +52,10 @@ export const authAPI = {
   resetPassword: (token, newPassword) => API.post('/auth/reset-password', { token, newPassword }),
   verifyEmail: (token) => API.post('/auth/verify-email', { token }),
   
+  // User Info
+  getProfile: () => API.get('/users/profile'),
+  updatePassword: (passwordData) => API.put('/users/password', passwordData),
+  updateProfile: (profileData) => API.put('/users/profile', profileData),
   // Address management
   addAddress: (addressData) => API.post('/users/addresses', addressData),
   updateAddress: (addressId, addressData) => API.put(`/users/addresses/${addressId}`, addressData),
@@ -120,7 +87,7 @@ export const productAPI = {
   getSellerProducts: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -136,7 +103,7 @@ export const productAPI = {
   getProductReviews: (productId, filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -153,7 +120,7 @@ export const productAPI = {
   getCategories: (options = {}) => {
     const params = new URLSearchParams();
     Object.keys(options).forEach(key => {
-      if (options[key] !== undefined && options[key] !== null) {
+      if (options[key] !== undefined && options[key] !== null && options[key] !== '') {
         params.append(key, options[key]);
       }
     });
@@ -164,7 +131,7 @@ export const productAPI = {
   getCategoryProducts: (id, filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -190,12 +157,58 @@ export const wishlistAPI = {
   removeFromWishlist: (itemId) => API.delete(`/wishlist/items/${itemId}`),
 };
 
+// Payment API calls
+export const paymentAPI = {
+  // Generic payment methods
+  createPayment: (paymentData) => API.post('/payments/create', paymentData),
+  verifyPayment: (paymentData) => API.post('/payments/verify', paymentData),
+  
+  // Razorpay specific
+  createRazorpayOrder: (orderData) => API.post('/payments/razorpay/create-order', orderData),
+  verifyRazorpayPayment: (verificationData) => API.post('/payments/razorpay/verify', verificationData),
+  handleRazorpayFailure: (failureData) => API.post('/payments/razorpay/failure', failureData),
+  
+  // COD (Cash on Delivery)
+  createCODOrder: (orderData) => API.post('/payments/cod/create', orderData),
+  
+  // User payment management
+  getUserPayments: (filters = {}) => {
+    const params = new URLSearchParams();
+    Object.keys(filters).forEach(key => {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
+        params.append(key, filters[key]);
+      }
+    });
+    return API.get(`/payments/user?${params.toString()}`);
+  },
+  
+  getPaymentDetails: (paymentId) => API.get(`/payments/${paymentId}`),
+  getPaymentByOrder: (orderId) => API.get(`/payments/order/${orderId}`),
+  
+  // Refunds
+  processRefund: (paymentId, refundData) => API.post(`/payments/${paymentId}/refund`, refundData),
+  
+  // Admin payment management
+  getAllPayments: (filters = {}) => {
+    const params = new URLSearchParams();
+    Object.keys(filters).forEach(key => {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
+        params.append(key, filters[key]);
+      }
+    });
+    return API.get(`/payments/admin/payments?${params.toString()}`);
+  },
+  
+  getPaymentStats: () => API.get('/payments/admin/payments/stats'),
+  getAdminPayment: (id) => API.get(`/payments/admin/payments/${id}`),
+};
+
 // Order API calls
 export const orderAPI = {
   getOrders: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -211,7 +224,7 @@ export const orderAPI = {
   getSellerOrders: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -219,13 +232,6 @@ export const orderAPI = {
   },
   
   updateOrderStatus: (id, statusData) => API.put(`/orders/seller/orders/${id}/status`, statusData),
-};
-
-// Payment API calls
-export const paymentAPI = {
-  createPayment: (paymentData) => API.post('/payments/create', paymentData),
-  verifyPayment: (paymentData) => API.post('/payments/verify', paymentData),
-  processRefund: (paymentId, refundData) => API.post(`/payments/${paymentId}/refund`, refundData),
 };
 
 // User API calls
@@ -257,7 +263,7 @@ export const adminAPI = {
   getAllUsers: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -278,7 +284,7 @@ export const adminAPI = {
   getAllOrders: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -292,7 +298,7 @@ export const adminAPI = {
   getAllReviews: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });
@@ -310,7 +316,7 @@ export const adminAPI = {
   getAllPayments: (filters = {}) => {
     const params = new URLSearchParams();
     Object.keys(filters).forEach(key => {
-      if (filters[key] !== undefined && filters[key] !== null) {
+      if (filters[key] !== undefined && filters[key] !== null && filters[key] !== '') {
         params.append(key, filters[key]);
       }
     });

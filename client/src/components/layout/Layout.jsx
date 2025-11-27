@@ -11,6 +11,7 @@ import ProductsPage from '../../pages/ProductsPage';
 import ProfilePage from '../../pages/ProfilePage';
 import CartPage from '../../pages/CartPage';
 import OrdersPage from '../../pages/OrdersPage';
+import CheckoutPage from '../../pages/CheckoutPage';
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -45,6 +46,7 @@ const Layout = () => {
             <Route path="profile" element={<ProfilePage />} />
             <Route path="cart" element={<CartPage />} />
             <Route path="orders" element={<OrdersPage />} />
+            <Route path="checkout" element={<CheckoutPage />} />
           </Routes>
         </main>
       </div>

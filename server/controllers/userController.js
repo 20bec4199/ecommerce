@@ -26,7 +26,8 @@ exports.updateUserProfile = catchAsyncError(async (req, res, next) => {
     newsletter,
     notifications
   } = req.body;
-console.log(req.body);
+//   console.log("Updating profile with data:");
+// console.log(req.body);
   const updateData = {};
   
   if (name) updateData.name = name;
@@ -44,7 +45,7 @@ console.log(req.body);
     }
   )
 
-  console.log(user);
+  // console.log(user);
 
   if (!user) {
     return next(new ErrorHandler('User not found', 404));
