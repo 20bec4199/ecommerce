@@ -127,7 +127,7 @@ exports.createOrder = catchAsyncError(async (req, res, next) => {
 exports.confirmOrderPayment = catchAsyncError(async (req, res, next) => {
   const { orderId, paymentId, paymentMethod } = req.body;
 
-  const order = await Order.findOne({ orderId, user: req.user.id });
+  const order = await Order.findOne({ orderId, user: req.user.userId });
   if (!order) {
     return next(new ErrorHandler('Order not found', 404));
   }
@@ -156,7 +156,7 @@ exports.confirmOrderPayment = catchAsyncError(async (req, res, next) => {
   await order.save();
 
   // Clear user's cart after successful payment
-  await Cart.findOneAndDelete({ user: req.user.id });
+  await Cart.findOneAndDelete({ user: req.user.userId });
 
   res.status(200).json({
     success: true,
@@ -169,7 +169,7 @@ exports.confirmOrderPayment = catchAsyncError(async (req, res, next) => {
 exports.failOrderPayment = catchAsyncError(async (req, res, next) => {
   const { orderId } = req.body;
 
-  const order = await Order.findOne({ orderId, user: req.user.id });
+  const order = await Order.findOne({ orderId, user: req.user.userId });
   if (!order) {
     return next(new ErrorHandler('Order not found', 404));
   }
@@ -196,7 +196,7 @@ exports.getOrders = catchAsyncError(async (req, res, next) => {
   } = req.query;
 
   const skip = (page - 1) * limit;
-  const filter = { user: req.user.id };
+  const filter = { user: req.user.userId };
   if (status) filter.status = status;
 
   const sort = { [sortBy]: sortOrder === 'desc' ? -1 : 1 };
@@ -230,7 +230,7 @@ exports.getOrder = catchAsyncError(async (req, res, next) => {
 
   const order = await Order.findOne({
     _id: id,
-    user: req.user.id
+    user: req.user.userId
   })
     .populate('items.product', 'name images category')
     .populate('items.seller', 'name sellerProfile.storeName');
@@ -252,7 +252,7 @@ exports.cancelOrder = catchAsyncError(async (req, res, next) => {
 
   const order = await Order.findOne({
     _id: id,
-    user: req.user.id
+    user: req.user.userId
   });
 
   if (!order) {
@@ -303,7 +303,7 @@ exports.updateOrderStatus = catchAsyncError(async (req, res, next) => {
   // Check if user is seller of any item in order or admin
   if (req.user.role !== 'admin') {
     const isSeller = order.items.some(item => 
-      item.seller.toString() === req.user.id
+      item.seller.toString() === req.user.userId
     );
     if (!isSeller) {
       return next(new ErrorHandler('Not authorized to update this order', 403));
@@ -372,7 +372,7 @@ exports.getSellerOrders = catchAsyncError(async (req, res, next) => {
 
   // Find orders where at least one item belongs to the seller
   const orders = await Order.find({
-    'items.seller': req.user.id
+    'items.seller': req.user.userId
   })
     .populate('user', 'name email')
     .populate('items.product', 'name images')
@@ -383,11 +383,11 @@ exports.getSellerOrders = catchAsyncError(async (req, res, next) => {
   // Filter items to only show seller's items
   const filteredOrders = orders.map(order => ({
     ...order.toObject(),
-    items: order.items.filter(item => item.seller.toString() === req.user.id)
+    items: order.items.filter(item => item.seller.toString() === req.user.userId)
   }));
 
   const totalOrders = await Order.countDocuments({
-    'items.seller': req.user.id
+    'items.seller': req.user.userId
   });
   const totalPages = Math.ceil(totalOrders / limit);
 
@@ -425,7 +425,7 @@ exports.getOrderStats = catchAsyncError(async (req, res, next) => {
   
   // For sellers, only show their orders
   if (req.user.role === 'seller') {
-    filter = { 'items.seller': req.user.id };
+    filter = { 'items.seller': req.user.userId };
   }
 
   const stats = await Order.aggregate([

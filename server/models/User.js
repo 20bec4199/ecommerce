@@ -73,6 +73,12 @@ const UserSchema = new mongoose.Schema({
     notifications: {
       type: Boolean,
       default: true
+    },
+    // Add theme preference here
+    theme: {
+      type: String,
+      enum: ['light', 'dark', 'system'],
+      default: 'system'
     }
   },
   role: {
@@ -120,8 +126,5 @@ UserSchema.methods.setRefreshToken = async function (token) {
 UserSchema.methods.isValidRefreshToken = async function (token) {
   return await bcrypt.compare(token, this.refreshToken);
 }
-
-
-
 
 module.exports = mongoose.model('User', UserSchema);

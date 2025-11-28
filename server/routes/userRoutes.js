@@ -12,6 +12,10 @@ router.get('/profile', authMiddleware, userController.getUserProfile);
 router.put('/profile', authMiddleware, userController.updateUserProfile);
 router.put('/password', authMiddleware, userController.updatePassword);
 
+// Theme routes
+router.get('/theme', authMiddleware, userController.getThemePreference);
+router.put('/theme', authMiddleware, userController.updateThemePreference);
+
 // Address management
 router.get('/addresses', authMiddleware, userController.getAddresses);
 router.post('/addresses', authMiddleware, userController.addAddress);

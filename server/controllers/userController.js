@@ -612,3 +612,46 @@ exports.getSellerDashboard = catchAsyncError(async (req, res, next) => {
       user
     });
   });
+
+  // Update theme preference
+exports.updateThemePreference = catchAsyncError(async (req, res, next) => {
+  const { theme } = req.body;
+
+  if (!theme || !['light', 'dark', 'system'].includes(theme)) {
+    return next(new ErrorHandler('Please provide a valid theme (light, dark, or system)', 400));
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.user.userId,
+    { $set: { 'preferences.theme': theme } },
+    { 
+      new: true,
+      runValidators: true
+    }
+  ).select('-password -refreshToken -refreshTokenExpires');
+
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    message: 'Theme preference updated successfully',
+    theme: user.preferences.theme
+  });
+});
+
+// Get theme preference
+exports.getThemePreference = catchAsyncError(async (req, res, next) => {
+  const user = await User.findById(req.user.userId)
+    .select('preferences.theme');
+
+  if (!user) {
+    return next(new ErrorHandler('User not found', 404));
+  }
+
+  res.status(200).json({
+    success: true,
+    theme: user.preferences.theme || 'system'
+  });
+});
