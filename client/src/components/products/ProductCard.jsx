@@ -18,7 +18,7 @@ const ProductCard = ({ product }) => {
   );
 
   const handleAddToCart = async () => {
-    console.log(product)
+    console.log('Adding to cart:', product);
     if (!user) {
       addNotification('Please login to add items to cart', 'warning');
       navigate('/login');
@@ -27,12 +27,14 @@ const ProductCard = ({ product }) => {
 
     try {
       setAddingToCart(true);
+      // This will automatically trigger the success notification from AppContext
       await addToCart(product, 1);
-     
-      addNotification(`${product.name} added to cart!`, 'success');
+      // No need to call addNotification here - it's handled in AppContext
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Failed to add item to cart';
-      addNotification(errorMessage, 'error');
+      // Error notification is handled in AppContext, but add fallback for network errors
+      if (!error.response) {
+        addNotification('Network error. Please try again.', 'error');
+      }
       console.error('Error adding to cart:', error);
     } finally {
       setAddingToCart(false);
@@ -58,7 +60,7 @@ const ProductCard = ({ product }) => {
         }
       } else {
         await addToWishlist(product._id);
-        addNotification('Added to wishlist!', 'success');
+        addNotification('Added to wishlist! ❤️', 'success');
       }
     } catch (error) {
       const errorMessage = error.response?.data?.message || 'Failed to update wishlist';
@@ -78,12 +80,15 @@ const ProductCard = ({ product }) => {
 
     try {
       setAddingToCart(true);
+      // This will automatically trigger the success notification from AppContext
       await addToCart(product, 1);
-      addNotification('Product added to cart!', 'success');
+      // Navigate to cart after successful addition
       navigate('/cart');
     } catch (error) {
-      const errorMessage = error.response?.data?.message || 'Failed to add item to cart';
-      addNotification(errorMessage, 'error');
+      // Error notification is handled in AppContext, but add fallback for network errors
+      if (!error.response) {
+        addNotification('Network error. Please try again.', 'error');
+      }
       console.error('Error adding to cart:', error);
     } finally {
       setAddingToCart(false);

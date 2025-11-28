@@ -4,6 +4,7 @@ import { Routes, Route } from 'react-router-dom';
 import Header from './Header';
 import Sidebar from './Sidebar';
 import { useTheme } from '../../hooks/useTheme';
+import NotificationContainer from '../Notification/NotificationContainer'; // Add this import
 
 // Import your page components
 import Dashboard from '../../pages/Dashboard';
@@ -68,6 +69,9 @@ const Layout = () => {
           onClick={closeSidebar}
         />
       )}
+
+      {/* Notification Container - Add this */}
+      <NotificationContainer />
     </div>
   );
 };
